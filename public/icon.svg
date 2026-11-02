@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bgLux" cx="50%" cy="35%" r="75%">
+      <stop offset="0%" stop-color="#3B0614" />
+      <stop offset="55%" stop-color="#140308" />
+      <stop offset="100%" stop-color="#050505" />
+    </radialGradient>
+    <linearGradient id="crimsonGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FB7185" />
+      <stop offset="35%" stop-color="#E11D48" />
+      <stop offset="75%" stop-color="#BE123C" />
+      <stop offset="100%" stop-color="#F59E0B" />
+    </linearGradient>
+    <linearGradient id="goldBorder" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FDE68A" />
+      <stop offset="50%" stop-color="#F59E0B" />
+      <stop offset="100%" stop-color="#B45309" />
+    </linearGradient>
+    <linearGradient id="crimsonBadge" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#F43F5E" />
+      <stop offset="50%" stop-color="#E11D48" />
+      <stop offset="100%" stop-color="#881337" />
+    </linearGradient>
+    <filter id="crimsonGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#E11D48" flood-opacity="0.55" />
+    </filter>
+  </defs>
+
+  <!-- Luxury Obsidian & Deep Ruby App Icon Base -->
+  <rect width="512" height="512" rx="112" fill="url(#bgLux)" />
+
+  <!-- Outer Gold & Crimson Luxury Frame -->
+  <rect x="22" y="22" width="468" height="468" rx="94" fill="none" stroke="url(#crimsonGold)" stroke-width="5" opacity="0.88" />
+  <rect x="38" y="38" width="436" height="436" rx="82" fill="none" stroke="url(#goldBorder)" stroke-width="1.5" opacity="0.4" />
+
+  <!-- Royal Crown / Cinema Diamond Crest at Top -->
+  <polygon points="256,64 276,94 256,110 236,94" fill="url(#goldBorder)" />
+  <circle cx="212" cy="96" r="5" fill="#E11D48" />
+  <circle cx="300" cy="96" r="5" fill="#E11D48" />
+
+  <!-- Central Luxury Crimson Shield / Medallion -->
+  <g filter="url(#crimsonGlow)">
+    <rect x="86" y="128" width="340" height="220" rx="44" fill="#0B0407" stroke="url(#crimsonGold)" stroke-width="4" />
+    <!-- Giant Luxury "TK" Monogram -->
+    <text
+      x="198"
+      y="282"
+      text-anchor="middle"
+      font-family="Georgia, 'Times New Roman', serif"
+      font-weight="900"
+      font-size="148"
+      letter-spacing="-4"
+      fill="url(#crimsonBadge)"
+      stroke="#FFE4E6"
+      stroke-width="2"
+    >TK</text>
+
+    <!-- Cinema Play Emblem integrated on the right of TK -->
+    <circle cx="354" cy="238" r="42" fill="url(#crimsonBadge)" stroke="url(#goldBorder)" stroke-width="3" />
+    <polygon points="342,216 342,260 378,238" fill="#FFFBEB" />
+  </g>
+
+  <!-- STORYWORLD Luxury Ribbon Subtitle -->
+  <text
+    x="256"
+    y="398"
+    text-anchor="middle"
+    font-family="Georgia, 'Times New Roman', serif"
+    font-weight="800"
+    font-size="34"
+    letter-spacing="7"
+    fill="#FFE4E6"
+  >STORYWORLD</text>
+
+  <!-- Gold Accent Rule & Tagline -->
+  <line x1="146" y1="418" x2="366" y2="418" stroke="url(#goldBorder)" stroke-width="2" opacity="0.75" />
+  <text
+    x="256"
+    y="444"
+    text-anchor="middle"
+    font-family="sans-serif"
+    font-weight="700"
+    font-size="15"
+    letter-spacing="5"
+    fill="#F59E0B"
+  >AI LUXURY CINEMA</text>
+</svg>

@@ -106,6 +106,24 @@ export function recalibrateMovieGenreAndSynopsis(movie: MovieItem): MovieItem {
   let primary = movie.primaryCategory;
 
   if (
+    movie.primaryCategory === 'Action Movies' ||
+    titleLower.includes('action') ||
+    titleLower.includes('combat') ||
+    titleLower.includes('cyberpunk') ||
+    titleLower.includes('tactical') ||
+    titleLower.includes('martial arts') ||
+    titleLower.includes('heist') ||
+    titleLower.includes('assassin') ||
+    titleLower.includes('special forces') ||
+    titleLower.includes('operative') ||
+    titleLower.includes('mercenary') ||
+    titleLower.includes('warfare') ||
+    titleLower.includes('mecha') ||
+    titleLower.includes('gunfight') ||
+    titleLower.includes('showdown')
+  ) {
+    primary = 'Action Movies';
+  } else if (
     titleLower.includes('contract') ||
     titleLower.includes('arranged marriage') ||
     titleLower.includes('arrange marriage') ||
@@ -227,6 +245,10 @@ export function recalibrateMovieGenreAndSynopsis(movie: MovieItem): MovieItem {
 
   const finalSynopsis = !isGenericPromo
     ? desc.slice(0, 320)
+    : primary === 'Action Movies'
+    ? `In "${cleanTitle}", high-stakes tactical combat, relentless pursuit, and explosive widescreen action collide in an edge-of-your-seat cinematic showdown from ${
+        movie.channelTitle || 'TK STORYWORLD Studios'
+      }.`
     : `In "${cleanTitle}", a captivating ${primary.toLowerCase()} from ${
         movie.channelTitle || 'TK STORYWORLD Studios'
       } unfolds as hidden secrets, unexpected romance, and life-changing choices collide.`;
@@ -234,6 +256,18 @@ export function recalibrateMovieGenreAndSynopsis(movie: MovieItem): MovieItem {
   // Recompute accurate secondaryCategories based on story cues
   const combined = `${titleLower} ${finalSynopsis.toLowerCase()}`;
   const secondary: MovieItem['secondaryCategories'] = [];
+
+  if (
+    primary !== 'Action Movies' &&
+    (combined.includes('action') ||
+      combined.includes('combat') ||
+      combined.includes('cyberpunk') ||
+      combined.includes('tactical') ||
+      combined.includes('martial arts') ||
+      combined.includes('heist'))
+  ) {
+    secondary.push('Action Movies');
+  }
 
   if (
     primary !== 'Contract Marriage' &&
@@ -313,12 +347,34 @@ export function recalibrateMovieGenreAndSynopsis(movie: MovieItem): MovieItem {
     secondary.push('Complete AI Movie Series');
   }
 
+  const hook =
+    movie.hookTag ||
+    (primary === 'Revenge Romance'
+      ? '⚡ Satisfying Revenge'
+      : primary === 'Contract Marriage'
+      ? '💍 High-Stakes Contract'
+      : primary === 'Secret Marriage'
+      ? '🎭 Disguised Billionaire'
+      : primary === 'CEO Love Stories'
+      ? '💼 Ruthless CEO'
+      : primary === 'Action Movies'
+      ? '💥 Non-Stop Action'
+      : primary === 'Emotional Love Stories'
+      ? '❤️ Emotional Tearjerker'
+      : '🔥 Viral Sensation');
+
+  const comments =
+    movie.commentsCount ||
+    Math.max(280, Math.floor((movie.viewCount || 500000) / 95));
+
   return {
     ...movie,
     title: cleanTitle,
     synopsis: finalSynopsis,
     primaryCategory: primary,
     secondaryCategories: Array.from(new Set(secondary)).slice(0, 3),
+    hookTag: hook,
+    commentsCount: comments,
   };
 }
 

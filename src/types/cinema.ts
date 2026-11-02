@@ -1,4 +1,5 @@
 export const MOVIE_CATEGORIES = [
+  'Action Movies',
   'Billionaire Romance',
   'CEO Love Stories',
   'Contract Marriage',
@@ -35,6 +36,8 @@ export interface MovieItem {
   durationFormatted: string;
   viewCount: number;
   likeCount: number;
+  commentsCount?: number;
+  hookTag?: string;
   isEmbeddable: boolean;
   playbackStatus: PlaybackStatus;
   approvalStatus: ApprovalStatus;
@@ -96,10 +99,12 @@ export interface DiscoveryRunLog {
 
 export interface AdminSettings {
   scheduleIntervalHours: 6 | 12 | 24;
+  discoveryIntervalHours?: number;
   autoPublishEnabled: boolean;
   minDurationSeconds: number;
   requireEmbeddable: boolean;
   lastSuccessfulRunAt: string | null;
+  lastDiscoveryRunAt?: string | null;
   nextScheduledRunAt: string;
   adminEmails: string[];
   adminNotificationCount: number;

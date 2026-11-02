@@ -71,6 +71,7 @@ type NigerianSubGenre =
   | 'emotional_marriage';
 
 const CORE_STORY_GENRES: MovieCategory[] = [
+  'Action Movies',
   'Contract Marriage',
   'Secret Marriage',
   'Billionaire Romance',
@@ -87,6 +88,11 @@ const GENRE_METADATA: Record<
   MovieCategory,
   { kicker: string; description: string }
 > = {
+  'Action Movies': {
+    kicker: 'High-Octane Combat · Sci-Fi Thrillers · Tactical Showdowns',
+    description:
+      'Complete-screen 16:9 widescreen action movies featuring high-stakes heists, cybernetic warfare, martial arts combat, and special-forces operations.',
+  },
   'Contract Marriage': {
     kicker: 'Arranged Vows · Paper Brides · Fake Love Turned Real',
     description:
@@ -166,6 +172,7 @@ export default function App() {
   const [diagnostics, setDiagnostics] =
     useState<SupabaseConnectionDiagnostics | null>(null);
   const [loading, setLoading] = useState(false);
+  const [addictionMood, setAddictionMood] = useState<string>('all');
 
   // Real Supabase Auth Client & Session State + Persistent Viewer Session Fallback
   const supabaseClientRef = useRef<SupabaseClient | null>(null);
@@ -765,6 +772,17 @@ export default function App() {
   }, [nigerianAndAfricanMovies, featuredMovie]);
 
   // Strict Genre-Partitioned Collections for Home & Categories Views
+  const actionMovies = useMemo(() => {
+    return sortMoviesList(
+      movies.filter(
+        (m) =>
+          m.primaryCategory === 'Action Movies' ||
+          m.secondaryCategories.includes('Action Movies')
+      ),
+      'Action Movies'
+    );
+  }, [movies, sortMoviesList]);
+
   const contractMarriageMovies = useMemo(() => {
     return sortMoviesList(
       movies.filter(
@@ -864,6 +882,59 @@ export default function App() {
       .slice(0, 12);
   }, [movies, engagementMap]);
 
+  // Viral & Most Addictive Movies (Filtered by Addiction Mood & sorted by views + comments + likes)
+  const viralAndAddictiveMovies = useMemo(() => {
+    let list = [...movies];
+    if (addictionMood === 'revenge') {
+      list = list.filter(
+        (m) =>
+          m.primaryCategory === 'Revenge Romance' ||
+          (m.hookTag && m.hookTag.toLowerCase().includes('revenge'))
+      );
+    } else if (addictionMood === 'contract') {
+      list = list.filter(
+        (m) =>
+          m.primaryCategory === 'Contract Marriage' ||
+          (m.hookTag && m.hookTag.toLowerCase().includes('contract'))
+      );
+    } else if (addictionMood === 'secret') {
+      list = list.filter(
+        (m) =>
+          m.primaryCategory === 'Secret Marriage' ||
+          (m.hookTag && m.hookTag.toLowerCase().includes('secret')) ||
+          (m.hookTag && m.hookTag.toLowerCase().includes('disguised'))
+      );
+    } else if (addictionMood === 'ceo') {
+      list = list.filter(
+        (m) =>
+          m.primaryCategory === 'CEO Love Stories' ||
+          m.primaryCategory === 'Billionaire Romance' ||
+          (m.hookTag && m.hookTag.toLowerCase().includes('ceo'))
+      );
+    } else if (addictionMood === 'lagos') {
+      list = list.filter(
+        (m) =>
+          m.channelTitle.toLowerCase().includes('nigeria') ||
+          m.channelTitle.toLowerCase().includes('lantora') ||
+          m.channelTitle.toLowerCase().includes('african') ||
+          m.title.toLowerCase().includes('nigerian') ||
+          m.title.toLowerCase().includes('lagos') ||
+          m.title.toLowerCase().includes('prince') ||
+          m.title.toLowerCase().includes('village')
+      );
+    } else if (addictionMood === 'action') {
+      list = list.filter((m) => m.primaryCategory === 'Action Movies');
+    }
+
+    return list.sort((a, b) => {
+      const scoreA =
+        (a.viewCount || 0) + (a.commentsCount || 0) * 150 + (a.likeCount || 0) * 8;
+      const scoreB =
+        (b.viewCount || 0) + (b.commentsCount || 0) * 150 + (b.likeCount || 0) * 8;
+      return scoreB - scoreA;
+    });
+  }, [movies, addictionMood]);
+
   // Map every MovieCategory to its accurately sorted movie list (Primary matches first)
   const categoryMoviesMap = useMemo(() => {
     const map = {} as Record<MovieCategory, MovieItem[]>;
@@ -955,6 +1026,15 @@ export default function App() {
             </span>
           </div>
 
+          {/* Addiction Hook / Viral Badge */}
+          {movie.hookTag && (
+            <div className="absolute top-2.5 right-3 pointer-events-none">
+              <span className="text-[9.5px] font-bold px-2 py-0.5 rounded-md bg-black/85 backdrop-blur-sm border border-[#E11D48]/50 text-rose-300 shadow-md">
+                {movie.hookTag}
+              </span>
+            </div>
+          )}
+
           {/* Touch-Friendly Mobile + Desktop Play Overlay */}
           <div className="absolute inset-0 flex items-center justify-center opacity-95 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-150 bg-black/20 sm:bg-black/40">
             <button
@@ -1030,17 +1110,23 @@ export default function App() {
             </p>
           </div>
 
-          {/* Zero-Pill Metadata Footer with Star Rating & Viewer Likes */}
-          <div className="pt-1 flex items-center gap-1.5 text-[11px] text-slate-500 truncate">
-            <span className="font-mono tabular-nums text-[#F59E0B] shrink-0">
+          {/* Zero-Pill Metadata Footer with Star Rating & Viral Views & Comments */}
+          <div className="pt-1 flex items-center gap-1.5 text-[11px] text-slate-400 truncate">
+            <span className="font-mono tabular-nums text-[#F59E0B] shrink-0 font-medium">
               ★ {avgStars}
             </span>
             <span aria-hidden="true">·</span>
-            <span className="font-mono tabular-nums text-rose-400/90 shrink-0">
-              ♥ {totalLikes.toLocaleString()}
+            <span className="font-mono tabular-nums text-rose-400/95 shrink-0 font-medium">
+              🔥 {movie.viewCount ? (movie.viewCount >= 1000000 ? `${(movie.viewCount / 1000000).toFixed(1)}M` : `${Math.round(movie.viewCount / 1000)}K`) : '850K'} views
             </span>
-            <span aria-hidden="true">·</span>
-            <span className="truncate">{movie.channelTitle}</span>
+            {movie.commentsCount ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="font-mono tabular-nums text-slate-300 shrink-0">
+                  💬 {movie.commentsCount >= 1000 ? `${(movie.commentsCount / 1000).toFixed(1)}K` : movie.commentsCount} comments
+                </span>
+              </>
+            ) : null}
           </div>
         </div>
       </div>
@@ -2089,6 +2175,59 @@ export default function App() {
                 </div>
               </section>
 
+              {/* VIRAL & MOST ADDICTIVE (HIGHEST VIEWS & INTENSE COMMENTS) */}
+              <section className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#E11D48]/20 border border-[#E11D48]/40 text-[#E11D48] text-[11px] font-bold uppercase tracking-wider">
+                        🔥 Viral & Most Addictive
+                      </span>
+                      <span className="text-xs text-amber-400 font-mono">
+                        {viralAndAddictiveMovies.length} Addictive Titles
+                      </span>
+                    </div>
+                    <h2 className="font-display text-xl sm:text-2xl font-bold text-white mt-1">
+                      Highest Views & Heated Comment Debates
+                    </h2>
+                    <p className="text-xs text-slate-400">
+                      The most binge-worthy romance dramas and action blockbusters with 1M+ views and thousands of intense viewer reactions
+                    </p>
+                  </div>
+
+                  {/* Quick Addiction Mood Filter Chips */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+                    {[
+                      { id: 'all', label: '🔥 All Viral Hits' },
+                      { id: 'revenge', label: '⚡ Satisfying Revenge' },
+                      { id: 'contract', label: '💍 Contract Vows' },
+                      { id: 'secret', label: '🎭 Secret Billionaire' },
+                      { id: 'ceo', label: '💼 Ruthless CEO' },
+                      { id: 'lagos', label: '👑 Lagos Royalty' },
+                      { id: 'action', label: '💥 Non-Stop Action' },
+                    ].map((mood) => (
+                      <button
+                        key={mood.id}
+                        onClick={() => setAddictionMood(mood.id)}
+                        className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                          addictionMood === mood.id
+                            ? 'bg-[#E11D48] text-white shadow-md shadow-rose-950/40'
+                            : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10'
+                        }`}
+                      >
+                        {mood.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                  {viralAndAddictiveMovies
+                    .slice(0, 8)
+                    .map((m) => renderMovieCard(m, true))}
+                </div>
+              </section>
+
               {/* 2. CONTINUE WATCHING RAIL */}
               {continueWatchingMovies.length > 0 && (
                 <section className="space-y-4">
@@ -2189,6 +2328,40 @@ export default function App() {
                   </div>
                   <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
                     {nigerianAndAfricanMovies
+                      .slice(0, 8)
+                      .map((m) => renderMovieCard(m, true))}
+                  </div>
+                </section>
+              )}
+
+              {/* 3B. ACTION MOVIES & SCI-FI BLOCKBUSTERS (COMPLETE SCREEN) */}
+              {actionMovies.length > 0 && (
+                <section className="space-y-4">
+                  <div className="flex items-end justify-between">
+                    <div>
+                      <div className="text-xs text-[#E11D48] font-semibold">
+                        {GENRE_METADATA['Action Movies'].kicker} · 16:9 Complete Screen
+                      </div>
+                      <h2 className="font-display text-xl font-bold text-white">
+                        Action Movies & Sci-Fi Blockbusters
+                      </h2>
+                      <p className="text-xs text-slate-400">
+                        {GENRE_METADATA['Action Movies'].description}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setSelectedCategory('Action Movies');
+                        setActiveView('categories');
+                      }}
+                      className="text-xs text-[#F59E0B] hover:underline inline-flex items-center gap-1 cursor-pointer shrink-0"
+                    >
+                      <span>Explore ({actionMovies.length})</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                    {actionMovies
                       .slice(0, 8)
                       .map((m) => renderMovieCard(m, true))}
                   </div>
@@ -2671,8 +2844,14 @@ export default function App() {
       {showNotifications && (
         <NotificationsPopover
           movies={movies}
-          lastDiscoveryRunAt={settings?.lastDiscoveryRunAt}
-          discoveryIntervalHours={settings?.discoveryIntervalHours || 6}
+          lastDiscoveryRunAt={
+            settings?.lastDiscoveryRunAt || settings?.lastSuccessfulRunAt
+          }
+          discoveryIntervalHours={
+            settings?.discoveryIntervalHours ||
+            settings?.scheduleIntervalHours ||
+            6
+          }
           seenIds={seenNotificationIds}
           onMarkAllSeen={markNotificationsSeen}
           onSelectMovie={(mov, autoPlay = true) =>

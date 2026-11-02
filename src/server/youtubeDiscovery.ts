@@ -159,8 +159,35 @@ export function classifyMovieFast(
 
   let primary: MovieCategory | null = null;
 
+  // Reject vertical / Shorts / conference talks
+  const isVerticalOrNonMovie =
+    rawTitle.toLowerCase().includes('#shorts') ||
+    rawTitle.toLowerCase().includes('9:16') ||
+    rawTitle.toLowerCase().includes('vertical') ||
+    rawTitle.toLowerCase().includes('bcon') ||
+    rawTitle.toLowerCase().includes('blender today') ||
+    rawTitle.toLowerCase().includes('blender conference');
+
   // 1. PRIORITY PASS: Analyze the Movie TITLE first (most accurate signal of what the story is actually about)
   if (
+    fallbackCategory === 'Action Movies' ||
+    titleLower.includes('action') ||
+    titleLower.includes('combat') ||
+    titleLower.includes('cyberpunk') ||
+    titleLower.includes('tactical') ||
+    titleLower.includes('martial arts') ||
+    titleLower.includes('heist') ||
+    titleLower.includes('assassin') ||
+    titleLower.includes('special forces') ||
+    titleLower.includes('operative') ||
+    titleLower.includes('mercenary') ||
+    titleLower.includes('warfare') ||
+    titleLower.includes('mecha') ||
+    titleLower.includes('gunfight') ||
+    titleLower.includes('showdown')
+  ) {
+    primary = 'Action Movies';
+  } else if (
     titleLower.includes('contract') ||
     titleLower.includes('arranged marriage') ||
     titleLower.includes('arrange marriage') ||
@@ -383,7 +410,7 @@ export function classifyMovieFast(
     synopsis,
     primaryCategory: primary,
     secondaryCategories: Array.from(new Set(secondary)).slice(0, 3) as MovieCategory[],
-    isAiMovieRelevant: true,
+    isAiMovieRelevant: !isVerticalOrNonMovie,
     aiQualityScore: Math.min(98, 88 + (cleanTitle.length % 10)),
     seasonNumber: seasonMatch ? parseInt(seasonMatch[1], 10) : epMatch ? 1 : null,
     episodeNumber: epMatch ? parseInt(epMatch[1], 10) : null,
@@ -411,7 +438,7 @@ export async function classifyMovieWithGemini(
   try {
     const geminiPromise = ai.models.generateContent({
       model: 'gemini-3.8-flash',
-      contents: `Analyze this YouTube video for TK STORYWORLD, a luxury streaming platform for AI-generated movies, Nigerian & International billionaire romance, CEO love stories, contract marriages, emotional dramas, and AI animated films.
+      contents: `Analyze this YouTube video for TK STORYWORLD, a luxury streaming platform for AI-generated movies, Complete-Screen Action Movies, Nigerian & International billionaire romance, CEO love stories, contract marriages, emotional dramas, and AI animated films.
 Title: ${rawTitle}
 Channel: ${channelTitle}
 Description: ${rawDescription.slice(0, 1000)}
@@ -469,7 +496,7 @@ IMPORTANT: Classify based primarily on the Video TITLE and actual story plot (ig
       synopsis: parsed.synopsis || fastFallback.synopsis,
       primaryCategory: validPrimary,
       secondaryCategories: validSecondary.slice(0, 3),
-      isAiMovieRelevant: parsed.isAiMovieRelevant ?? true,
+      isAiMovieRelevant: parsed.isAiMovieRelevant ?? fastFallback.isAiMovieRelevant,
       aiQualityScore: Math.min(
         100,
         Math.max(50, Number(parsed.aiQualityScore) || fastFallback.aiQualityScore)
@@ -503,9 +530,10 @@ export async function verifyYouTubeOEmbed(videoId: string): Promise<{
       return { exists: false, embeddable: false };
     }
     const data = (await res.json()) as any;
+    const isWidescreen = Number(data.width || 200) > Number(data.height || 113);
     return {
       exists: true,
-      embeddable: true,
+      embeddable: isWidescreen,
       title: data.title,
       authorName: data.author_name,
       thumbnailUrl:

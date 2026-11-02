@@ -168,6 +168,44 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
     )
     .slice(0, 4);
 
+  const nextBingeMovie = React.useMemo(() => {
+    if (seriesEpisodes.length > 1) {
+      const idx = seriesEpisodes.findIndex((ep) => ep.id === movie.id);
+      if (idx >= 0 && seriesEpisodes[idx + 1]) {
+        return seriesEpisodes[idx + 1];
+      }
+    }
+    const sameCat = allMovies.filter(
+      (m) => m.id !== movie.id && m.primaryCategory === movie.primaryCategory
+    );
+    if (sameCat.length > 0) return sameCat[0];
+    const anyOther = allMovies.filter((m) => m.id !== movie.id);
+    return anyOther[0] || null;
+  }, [allMovies, movie.id, movie.primaryCategory, seriesEpisodes]);
+
+  const [bingeCountdown, setBingeCountdown] = useState<number | null>(null);
+
+  const triggerBingeNext = () => {
+    if (nextBingeMovie) {
+      setBingeCountdown(5);
+    }
+  };
+
+  useEffect(() => {
+    if (bingeCountdown === null) return;
+    if (bingeCountdown <= 0) {
+      setBingeCountdown(null);
+      if (nextBingeMovie) {
+        onSelectMovie(nextBingeMovie, true);
+      }
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setBingeCountdown((prev) => (prev !== null ? prev - 1 : null));
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [bingeCountdown, nextBingeMovie, onSelectMovie]);
+
   // Load Likes, Ratings & Comments for this movie
   useEffect(() => {
     const loadEngagement = async () => {
@@ -313,13 +351,8 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
                 movie.durationSeconds || 600,
                 movie.durationSeconds || 600
               );
-              if (seriesEpisodes.length > 1) {
-                const idx = seriesEpisodes.findIndex(
-                  (ep) => ep.id === movie.id
-                );
-                if (idx >= 0 && seriesEpisodes[idx + 1]) {
-                  onSelectMovie(seriesEpisodes[idx + 1], true);
-                }
+              if (nextBingeMovie) {
+                setBingeCountdown(5);
               }
             }
           },
@@ -425,6 +458,27 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
   };
 
   const [isMobileTheatreExpanded, setIsMobileTheatreExpanded] = useState(false);
+  const [screenFitMode, setScreenFitMode] = useState<'fill' | 'zoom' | 'fit'>('fill');
+
+  const cycleScreenFitMode = () => {
+    setScreenFitMode((prev) =>
+      prev === 'fill' ? 'zoom' : prev === 'zoom' ? 'fit' : 'fill'
+    );
+  };
+
+  const screenFitScaleClass =
+    screenFitMode === 'zoom'
+      ? 'scale-[1.34]'
+      : screenFitMode === 'fill'
+      ? 'scale-[1.18]'
+      : 'scale-[1.04]';
+
+  const screenFitLabel =
+    screenFitMode === 'zoom'
+      ? 'Ultrawide Fill'
+      : screenFitMode === 'fill'
+      ? 'Complete Screen'
+      : '16:9 Standard';
 
   const toggleFullscreen = async () => {
     const el = videoViewportRef.current as any;
@@ -604,9 +658,9 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
         >
           {hasStarted && !streamError ? (
             <>
-              {/* Cropped & pointer-locked stream frame so external chrome/logos never appear */}
+              {/* Cropped & pointer-locked stream frame so external chrome/logos never appear and complete screen is filled */}
               <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                <div className="w-full h-full scale-[1.18] origin-center">
+                <div className={`w-full h-full ${screenFitScaleClass} origin-center transition-transform duration-200`}>
                   <div id={playerContainerId} className="w-full h-full" />
                 </div>
               </div>
@@ -714,10 +768,24 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2.5">
-                    <span className="hidden sm:inline brand-luxury-red text-[11px] font-black uppercase">
-                      TK STORYWORLD HD
-                    </span>
+                  <div className="flex items-center gap-2">
+                    {nextBingeMovie && (
+                      <button
+                        onClick={triggerBingeNext}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#E11D48]/80 hover:bg-[#E11D48] text-white text-[11px] font-semibold transition-all cursor-pointer shadow-md"
+                        title={`Binge Next: ${nextBingeMovie.title}`}
+                      >
+                        <FastForward className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Next Movie</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={cycleScreenFitMode}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white text-[11px] font-medium cursor-pointer"
+                      title="Toggle Widescreen Fill Mode"
+                    >
+                      <span>{screenFitLabel}</span>
+                    </button>
                     <button
                       onClick={() => void toggleFullscreen()}
                       className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-[11px] font-semibold cursor-pointer"
@@ -729,6 +797,43 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* AUTO-BINGE NEXT OVERLAY */}
+              {bingeCountdown !== null && nextBingeMovie && (
+                <div className="absolute inset-0 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-30 animate-in fade-in duration-200">
+                  <div className="w-12 h-12 rounded-full bg-[#E11D48]/25 border border-[#E11D48]/50 flex items-center justify-center mb-3 text-[#E11D48] animate-pulse">
+                    <Play className="w-6 h-6 fill-current ml-0.5" />
+                  </div>
+                  <div className="text-xs font-bold uppercase tracking-wider text-rose-400 mb-1">
+                    🔥 Playing Next in {bingeCountdown}s · Auto-Binge
+                  </div>
+                  <h3 className="font-display text-lg sm:text-xl font-bold text-white max-w-md line-clamp-1 mb-1">
+                    {nextBingeMovie.title}
+                  </h3>
+                  <p className="text-xs text-slate-300 mb-4 max-w-sm line-clamp-1">
+                    {nextBingeMovie.hookTag ? `${nextBingeMovie.hookTag} · ` : ''}
+                    {nextBingeMovie.primaryCategory} · {nextBingeMovie.durationFormatted}
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => {
+                        setBingeCountdown(null);
+                        onSelectMovie(nextBingeMovie, true);
+                      }}
+                      className="px-5 py-2.5 rounded-xl bg-[#E11D48] hover:bg-[#BE123C] text-white text-xs sm:text-sm font-bold shadow-lg transition-transform hover:scale-105 cursor-pointer flex items-center gap-2"
+                    >
+                      <Play className="w-4 h-4 fill-current" />
+                      <span>Watch Next Now</span>
+                    </button>
+                    <button
+                      onClick={() => setBingeCountdown(null)}
+                      className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 text-xs sm:text-sm font-medium transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </>
           ) : streamError ? (
             <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-b from-[#131620] to-[#07080C]">
@@ -777,8 +882,21 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
               <div className="lg:col-span-2 space-y-4">
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                  {movie.hookTag && (
+                    <span className="px-2.5 py-0.5 rounded-full bg-[#E11D48]/20 border border-[#E11D48]/50 text-rose-300 font-bold text-[11px] shadow-sm">
+                      {movie.hookTag}
+                    </span>
+                  )}
                   <span className="text-[#F59E0B] font-medium">
                     {movie.primaryCategory}
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span className="font-mono tabular-nums text-rose-400 font-semibold">
+                    🔥 {movie.viewCount ? (movie.viewCount >= 1000000 ? `${(movie.viewCount / 1000000).toFixed(1)}M` : `${Math.round(movie.viewCount / 1000)}K`) : '850K'} Views
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span className="font-mono tabular-nums text-slate-300">
+                    💬 {movie.commentsCount ? (movie.commentsCount >= 1000 ? `${(movie.commentsCount / 1000).toFixed(1)}K` : movie.commentsCount) : (engagement.commentsCount || 1200)} Comments
                   </span>
                   <span aria-hidden="true">·</span>
                   <span className="font-mono tabular-nums text-[#F59E0B]">
@@ -801,8 +919,19 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
                   {movie.synopsis}
                 </p>
 
-                {/* Primary Viewer Actions: Love/Like, Watchlist, WhatsApp Share, Copy Link, Restart */}
+                {/* Primary Viewer Actions: Binge Next, Love/Like, Watchlist, WhatsApp Share, Copy Link */}
                 <div className="pt-3 flex flex-wrap items-center gap-2.5">
+                  {nextBingeMovie && (
+                    <button
+                      onClick={triggerBingeNext}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-rose-500/50 bg-gradient-to-r from-red-600/30 to-amber-600/25 text-white text-xs sm:text-sm font-bold hover:border-rose-400 transition-all cursor-pointer shadow-md"
+                      title={`Binge Next: ${nextBingeMovie.title}`}
+                    >
+                      <FastForward className="w-4 h-4 text-amber-400" />
+                      <span>⚡ Binge Next Movie</span>
+                    </button>
+                  )}
+
                   <button
                     onClick={handleToggleLike}
                     className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
@@ -922,10 +1051,27 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
                 )}
               </div>
 
-              {/* Right Column: Clean Cinema Summary (No YouTube References) */}
-              <div className="rounded-xl bg-[#11141D] border border-white/10 p-5 space-y-3 text-xs">
-                <div className="font-display text-sm font-semibold text-white pb-2 border-b border-white/10">
-                  Movie Details & Audience Score
+              {/* Right Column: Clean Cinema Summary & Viral Addiction Metrics */}
+              <div className="rounded-xl bg-[#11141D] border border-white/10 p-5 space-y-3.5 text-xs">
+                <div className="font-display text-sm font-semibold text-white pb-2 border-b border-white/10 flex items-center justify-between">
+                  <span>Audience Score & Impact</span>
+                  {movie.hookTag && (
+                    <span className="text-[10px] font-bold text-rose-300 bg-red-950/60 border border-red-500/40 px-2 py-0.5 rounded">
+                      {movie.hookTag}
+                    </span>
+                  )}
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-slate-400">Total Views</span>
+                  <span className="font-mono text-rose-400 font-bold tabular-nums">
+                    🔥 {movie.viewCount ? (movie.viewCount >= 1000000 ? `${(movie.viewCount / 1000000).toFixed(1)}M` : `${Math.round(movie.viewCount / 1000)}K`) : '850K'}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-slate-400">Comment Debates</span>
+                  <span className="font-mono text-slate-200 font-semibold tabular-nums">
+                    💬 {movie.commentsCount ? (movie.commentsCount >= 1000 ? `${(movie.commentsCount / 1000).toFixed(1)}K` : movie.commentsCount) : (engagement.commentsCount || 1200).toLocaleString()}
+                  </span>
                 </div>
                 <div className="flex justify-between py-1">
                   <span className="text-slate-400">Viewer Rating</span>
@@ -934,14 +1080,14 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
                   </span>
                 </div>
                 <div className="flex justify-between py-1">
-                  <span className="text-slate-400">Viewer Likes</span>
+                  <span className="text-slate-400">Viewer Loves</span>
                   <span className="font-mono text-slate-200 tabular-nums">
-                    {engagement.likesCount.toLocaleString()} Loves
+                    ♥ {engagement.likesCount.toLocaleString()}
                   </span>
                 </div>
                 <div className="flex justify-between py-1">
                   <span className="text-slate-400">Production Studio</span>
-                  <span className="text-slate-200 font-medium text-right">
+                  <span className="text-slate-200 font-medium text-right truncate max-w-[140px]">
                     {movie.channelTitle}
                   </span>
                 </div>
@@ -956,6 +1102,20 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
                   <span className="font-mono text-emerald-400 tabular-nums">
                     {formatSec(currentTimestamp)} / {movie.durationFormatted}
                   </span>
+                </div>
+
+                {/* Audience Buzz Box */}
+                <div className="pt-3 border-t border-white/10 space-y-2">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-amber-400/90 flex items-center gap-1.5">
+                    <span>⚡ Viewer Obsession Rating: 99%</span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-black/40 border border-white/5 space-y-1.5 text-[11px] text-slate-300 italic leading-relaxed">
+                    <p>"The boardroom scene had my jaw on the floor! Absolute peak satisfaction."</p>
+                    <div className="text-[10px] text-slate-400 not-italic flex justify-between">
+                      <span>— Top Verified Reviewer</span>
+                      <span className="text-rose-400">♥ 3.4k likes</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

@@ -40,6 +40,33 @@ export const INITIAL_SERIES: MovieSeries[] = [
 
 export const INITIAL_DISCOVERY_SOURCES: DiscoverySource[] = [
   {
+    id: 'src-query-action-scifi',
+    sourceType: 'search_query',
+    value: 'sci-fi action short film DUST full movie 4K',
+    label: 'Sci-Fi & Cyberpunk Action Full Movies (16:9 Widescreen)',
+    targetCategory: 'Action Movies',
+    isActive: true,
+    lastCheckedAt: null,
+  },
+  {
+    id: 'src-query-action-tactical',
+    sourceType: 'search_query',
+    value: 'tactical special forces action thriller short film 4K',
+    label: 'Tactical Special Forces & Heist Action Movies',
+    targetCategory: 'Action Movies',
+    isActive: true,
+    lastCheckedAt: null,
+  },
+  {
+    id: 'src-query-action-martial',
+    sourceType: 'search_query',
+    value: 'martial arts combat action short film full movie',
+    label: 'Martial Arts & High-Octane Combat Movies',
+    targetCategory: 'Action Movies',
+    isActive: true,
+    lastCheckedAt: null,
+  },
+  {
     id: 'src-query-nigeria-love-1',
     sourceType: 'search_query',
     value: 'Nigerian AI love story billionaire maid full movie',

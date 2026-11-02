@@ -19,6 +19,25 @@ const PORT = 3000;
 
 app.use(express.json({ limit: '2mb' }));
 
+// Normalize Netlify Function paths so /.netlify/functions/api/* or stripped /* routes match /api/*
+app.use((req, _res, next) => {
+  if (req.url.startsWith('/.netlify/functions/api')) {
+    const rest = req.url.slice('/.netlify/functions/api'.length);
+    req.url = `/api${rest.startsWith('/') ? rest : `/${rest}`}`;
+  } else if (
+    !req.url.startsWith('/api/') &&
+    (req.url.startsWith('/bootstrap') ||
+      req.url.startsWith('/movies') ||
+      req.url.startsWith('/engagement') ||
+      req.url.startsWith('/watch-history') ||
+      req.url.startsWith('/watchlist') ||
+      req.url.startsWith('/admin'))
+  ) {
+    req.url = `/api${req.url}`;
+  }
+  next();
+});
+
 let isDiscoveryRunning = false;
 
 async function triggerScheduledDiscoveryIfNeeded(

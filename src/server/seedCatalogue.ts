@@ -1,3 +1,4 @@
+import bundledCatalogue from '../../data/aetheria-db.json';
 import {
   AdminSettings,
   DiscoverySource,
@@ -206,7 +207,9 @@ export const INITIAL_ADMIN_SETTINGS: AdminSettings = {
   requireFreeSignupToWatch: true,
 };
 
-export const INITIAL_MOVIES: MovieItem[] = [
+export const INITIAL_SETTINGS: AdminSettings = INITIAL_ADMIN_SETTINGS;
+
+const BASE_SEED_MOVIES: MovieItem[] = [
   {
     id: '22222222-2222-4222-8222-222222222201',
     youtubeVideoId: 'WhWc3b3KhnY',
@@ -440,3 +443,13 @@ export const INITIAL_MOVIES: MovieItem[] = [
     updatedAt: '2026-11-01T06:00:00.000Z',
   },
 ];
+
+const BUNDLED_MOVIES: MovieItem[] = Array.isArray(
+  (bundledCatalogue as any)?.movies
+)
+  ? ((bundledCatalogue as any).movies as MovieItem[])
+  : [];
+
+export const INITIAL_MOVIES: MovieItem[] =
+  BUNDLED_MOVIES.length > 0 ? BUNDLED_MOVIES : BASE_SEED_MOVIES;
+

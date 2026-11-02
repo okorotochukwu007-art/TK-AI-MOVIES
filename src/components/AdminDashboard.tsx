@@ -22,6 +22,12 @@ import {
   X,
 } from 'lucide-react';
 import {
+  INITIAL_DISCOVERY_SOURCES,
+  INITIAL_MOVIES,
+  INITIAL_SERIES,
+  INITIAL_SETTINGS,
+} from '../server/seedCatalogue.ts';
+import {
   AdminSettings,
   DiscoveryRunLog,
   DiscoverySource,
@@ -64,11 +70,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     text: string;
   } | null>(null);
 
-  const [movies, setMovies] = useState<MovieItem[]>([]);
-  const [series, setSeries] = useState<MovieSeries[]>([]);
-  const [sources, setSources] = useState<DiscoverySource[]>([]);
+  const [movies, setMovies] = useState<MovieItem[]>(() => [...INITIAL_MOVIES]);
+  const [series, setSeries] = useState<MovieSeries[]>(() => [...INITIAL_SERIES]);
+  const [sources, setSources] = useState<DiscoverySource[]>(() => [
+    ...INITIAL_DISCOVERY_SOURCES,
+  ]);
   const [runs, setRuns] = useState<DiscoveryRunLog[]>([]);
-  const [settings, setSettings] = useState<AdminSettings | null>(null);
+  const [settings, setSettings] = useState<AdminSettings | null>(
+    () => INITIAL_SETTINGS
+  );
   const [diagnostics, setDiagnostics] =
     useState<SupabaseConnectionDiagnostics | null>(null);
   const [sqlSchema, setSqlSchema] = useState('');

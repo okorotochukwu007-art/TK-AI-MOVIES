@@ -924,6 +924,10 @@ class SupabaseRepository {
 
   // --- MOVIES ---
   public async getMovies(includeUnapproved = false): Promise<MovieItem[]> {
+    if (!this.state.movies || this.state.movies.length === 0) {
+      this.state.movies = [...INITIAL_MOVIES];
+    }
+
     if (await this.ensureTablesReady()) {
       try {
         const { data, error } = await this.supabase!
@@ -964,6 +968,9 @@ class SupabaseRepository {
           );
           this.state.movies = mapped;
           this.saveLocalState();
+        } else if (!error && data && data.length === 0) {
+          // Table exists in Supabase but has 0 rows: auto-seed initial catalogue in background
+          void this.syncAllToSupabase();
         }
       } catch {
         // Fallback to local state seamlessly

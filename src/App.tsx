@@ -44,6 +44,11 @@ import { SupabaseAuthModal } from './components/SupabaseAuthModal.tsx';
 import { YouTubeTheatreModal } from './components/YouTubeTheatreModal.tsx';
 import { usePWAInstall } from './hooks/usePWAInstall.ts';
 import {
+  INITIAL_MOVIES,
+  INITIAL_SERIES,
+  INITIAL_SETTINGS,
+} from './server/seedCatalogue.ts';
+import {
   AdminSettings,
   MOVIE_CATEGORIES,
   MovieCategory,
@@ -148,17 +153,19 @@ export default function App() {
   const [activeView, setActiveView] = useState<NavView>('home');
   const [nigerianSubGenre, setNigerianSubGenre] =
     useState<NigerianSubGenre>('all');
-  const [movies, setMovies] = useState<MovieItem[]>([]);
-  const [series, setSeries] = useState<MovieSeries[]>([]);
+  const [movies, setMovies] = useState<MovieItem[]>(() => [...INITIAL_MOVIES]);
+  const [series, setSeries] = useState<MovieSeries[]>(() => [...INITIAL_SERIES]);
   const [watchHistory, setWatchHistory] = useState<WatchProgressItem[]>([]);
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
   const [engagementMap, setEngagementMap] = useState<
     Record<string, MovieEngagementSummary>
   >({});
-  const [settings, setSettings] = useState<AdminSettings | null>(null);
+  const [settings, setSettings] = useState<AdminSettings | null>(
+    () => INITIAL_SETTINGS
+  );
   const [diagnostics, setDiagnostics] =
     useState<SupabaseConnectionDiagnostics | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   // Real Supabase Auth Client & Session State
   const supabaseClientRef = useRef<SupabaseClient | null>(null);
@@ -253,31 +260,27 @@ export default function App() {
   }, [authSession, settings]);
 
   const loadBootstrapData = useCallback(async () => {
-    try {
-      const res = await fetch(
-        `/api/bootstrap?userId=${encodeURIComponent(userId)}`
-      );
-      if (!res.ok) return;
-      const data = await res.json();
-      setMovies(data.movies || []);
-      setSeries(data.series || []);
-      setWatchHistory(data.watchHistory || []);
-      setWatchlist(data.watchlist || []);
-      setEngagementMap(data.engagementMap || {});
-      setSettings(data.settings || null);
-      setDiagnostics(data.diagnostics || null);
-
-      // Initialize singleton client-side Supabase Auth instance
+    const initSupabaseIfNeeded = async (url?: string, anonKey?: string) => {
+      const targetUrl =
+        url ||
+        (import.meta as any).env?.VITE_SUPABASE_URL ||
+        '';
+      const targetKey =
+        anonKey ||
+        (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
+        '';
       if (
         !supabaseClientRef.current &&
-        data.clientSupabaseConfig?.url &&
-        data.clientSupabaseConfig?.anonKey
+        targetUrl &&
+        targetKey &&
+        !targetUrl.includes('your-project-id') &&
+        !targetKey.includes('your-supabase')
       ) {
         try {
-          const sb = createClient(
-            data.clientSupabaseConfig.url,
-            data.clientSupabaseConfig.anonKey
-          );
+          const normalizedUrl = targetUrl.startsWith('http')
+            ? targetUrl
+            : `https://${targetUrl}.supabase.co`;
+          const sb = createClient(normalizedUrl, targetKey);
           supabaseClientRef.current = sb;
           setSupabaseClient(sb);
 
@@ -291,8 +294,88 @@ export default function App() {
           console.error('Supabase Auth client initialization error:', err);
         }
       }
+      return supabaseClientRef.current;
+    };
+
+    try {
+      const res = await fetch(
+        `/api/bootstrap?userId=${encodeURIComponent(userId)}`
+      );
+      const contentType = res.headers.get('content-type') || '';
+
+      if (res.ok && contentType.includes('application/json')) {
+        const data = await res.json();
+        setMovies(
+          Array.isArray(data.movies) && data.movies.length > 0
+            ? data.movies
+            : [...INITIAL_MOVIES]
+        );
+        setSeries(
+          Array.isArray(data.series) && data.series.length > 0
+            ? data.series
+            : [...INITIAL_SERIES]
+        );
+        setWatchHistory(data.watchHistory || []);
+        setWatchlist(data.watchlist || []);
+        setEngagementMap(data.engagementMap || {});
+        setSettings(data.settings || INITIAL_SETTINGS);
+        setDiagnostics(data.diagnostics || null);
+
+        await initSupabaseIfNeeded(
+          data.clientSupabaseConfig?.url,
+          data.clientSupabaseConfig?.anonKey
+        );
+        return;
+      }
+
+      // Fallback when deployed as static site or if /api/bootstrap was unreachable
+      const sb = await initSupabaseIfNeeded();
+      if (sb) {
+        const { data: dbMovies } = await sb
+          .from('movies')
+          .select('*')
+          .order('published_at', { ascending: false });
+
+        if (Array.isArray(dbMovies) && dbMovies.length > 0) {
+          const mappedMovies: MovieItem[] = dbMovies.map((row: any) => ({
+            id: row.id,
+            youtubeVideoId: row.youtube_video_id,
+            title: row.title,
+            synopsis: row.synopsis || '',
+            thumbnailUrl: row.thumbnail_url,
+            backdropUrl: row.backdrop_url,
+            primaryCategory: row.primary_category,
+            secondaryCategories: row.secondary_categories || [],
+            channelTitle: row.channel_title,
+            channelId: row.channel_id || '',
+            publishedAt: row.published_at,
+            durationSeconds: row.duration_seconds || 0,
+            durationFormatted: row.duration_formatted || '00:00',
+            viewCount: Number(row.view_count || 0),
+            likeCount: Number(row.like_count || 0),
+            isEmbeddable: row.is_embeddable ?? true,
+            playbackStatus: row.playback_status || 'active',
+            approvalStatus: row.approval_status || 'approved',
+            isFeatured: Boolean(row.is_featured),
+            seriesId: row.series_id || null,
+            seasonNumber: row.season_number ?? null,
+            episodeNumber: row.episode_number ?? null,
+            discoveredVia: row.discovered_via || 'youtube_api',
+            aiQualityScore: row.ai_quality_score || 85,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+          }));
+          setMovies(
+            mappedMovies.filter(
+              (m) =>
+                m.approvalStatus === 'approved' && m.playbackStatus === 'active'
+            )
+          );
+        }
+      }
     } catch (err) {
-      console.error('Failed to bootstrap streaming catalogue:', err);
+      console.error('Bootstrap fallback activated:', err);
+      await initSupabaseIfNeeded();
     } finally {
       setLoading(false);
     }

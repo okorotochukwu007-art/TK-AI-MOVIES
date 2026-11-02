@@ -36,7 +36,19 @@ interface PersistedState {
   movieComments: MovieCommentItem[];
 }
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
+const IS_SERVERLESS = Boolean(
+  process.env.NETLIFY ||
+    process.env.NETLIFY_FUNCTIONS_ENV ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.VERCEL
+);
+const BUNDLED_DATA_FILE = path.join(
+  path.resolve(process.cwd(), 'data'),
+  'aetheria-db.json'
+);
+const DATA_DIR = IS_SERVERLESS
+  ? '/tmp'
+  : path.resolve(process.cwd(), 'data');
 const DATA_FILE = path.join(DATA_DIR, 'aetheria-db.json');
 
 const UUID_REGEX =
@@ -326,8 +338,13 @@ class SupabaseRepository {
       if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
-      if (fs.existsSync(DATA_FILE)) {
-        const raw = fs.readFileSync(DATA_FILE, 'utf-8');
+      const sourceFile = fs.existsSync(DATA_FILE)
+        ? DATA_FILE
+        : fs.existsSync(BUNDLED_DATA_FILE)
+          ? BUNDLED_DATA_FILE
+          : null;
+      if (sourceFile) {
+        const raw = fs.readFileSync(sourceFile, 'utf-8');
         const parsed = JSON.parse(raw) as Partial<PersistedState>;
         const migratedSeries = (parsed.series?.length ? parsed.series : [...INITIAL_SERIES]).map(
           (s) => ({
@@ -895,11 +912,21 @@ class SupabaseRepository {
     }
   }
 
+  private async ensureTablesReady(): Promise<boolean> {
+    if (!this.supabase) {
+      this.initSupabaseClient();
+    }
+    if (!this.supabase) return false;
+    if (this.tablesReady) return true;
+    const diag = await this.checkDiagnostics();
+    return diag.tablesReady;
+  }
+
   // --- MOVIES ---
   public async getMovies(includeUnapproved = false): Promise<MovieItem[]> {
-    if (this.supabase && this.tablesReady) {
+    if (await this.ensureTablesReady()) {
       try {
-        const { data, error } = await this.supabase
+        const { data, error } = await this.supabase!
           .from('movies')
           .select('*')
           .order('published_at', { ascending: false });
@@ -992,9 +1019,9 @@ class SupabaseRepository {
 
     this.saveLocalState();
 
-    if (this.supabase && this.tablesReady) {
+    if (await this.ensureTablesReady()) {
       try {
-        await this.supabase.from('movies').upsert(
+        await this.supabase!.from('movies').upsert(
           {
             youtube_video_id: savedMovie.youtubeVideoId,
             title: savedMovie.title,
@@ -1037,9 +1064,9 @@ class SupabaseRepository {
     this.state.movies = this.state.movies.filter((m) => m.id !== id);
     this.saveLocalState();
 
-    if (this.supabase && this.tablesReady) {
+    if (await this.ensureTablesReady()) {
       try {
-        await this.supabase
+        await this.supabase!
           .from('movies')
           .delete()
           .eq('youtube_video_id', target.youtubeVideoId);
@@ -1052,9 +1079,9 @@ class SupabaseRepository {
 
   // --- SERIES ---
   public async getSeries(): Promise<MovieSeries[]> {
-    if (this.supabase && this.tablesReady) {
+    if (await this.ensureTablesReady()) {
       try {
-        const { data, error } = await this.supabase
+        const { data, error } = await this.supabase!
           .from('series')
           .select('*')
           .order('created_at', { ascending: false });
@@ -1093,9 +1120,9 @@ class SupabaseRepository {
     }
     this.saveLocalState();
 
-    if (this.supabase && this.tablesReady) {
+    if (await this.ensureTablesReady()) {
       try {
-        await this.supabase.from('series').upsert(
+        await this.supabase!.from('series').upsert(
           {
             id: cleanSeries.id,
             title: cleanSeries.title,
@@ -1118,6 +1145,27 @@ class SupabaseRepository {
 
   // --- DISCOVERY SOURCES ---
   public async getSources(): Promise<DiscoverySource[]> {
+    if (await this.ensureTablesReady()) {
+      try {
+        const { data, error } = await this.supabase!
+          .from('discovery_sources')
+          .select('*');
+        if (!error && data && data.length > 0) {
+          this.state.sources = data.map((row: any) => ({
+            id: row.id || `src-${row.value}`,
+            sourceType: row.source_type,
+            value: row.value,
+            label: row.label || row.value,
+            targetCategory: row.target_category || 'Billionaire Romance',
+            isActive: row.is_active ?? true,
+            lastCheckedAt: row.last_checked_at || null,
+          }));
+          this.saveLocalState();
+        }
+      } catch {
+        // fallback to local
+      }
+    }
     return [...this.state.sources];
   }
 
@@ -1131,9 +1179,9 @@ class SupabaseRepository {
     this.state.sources.unshift(source);
     this.saveLocalState();
 
-    if (this.supabase && this.tablesReady) {
+    if (await this.ensureTablesReady()) {
       try {
-        await this.supabase.from('discovery_sources').upsert(
+        await this.supabase!.from('discovery_sources').upsert(
           {
             source_type: source.sourceType,
             value: source.value,
@@ -1156,9 +1204,9 @@ class SupabaseRepository {
     this.state.sources = this.state.sources.filter((s) => s.id !== id);
     this.saveLocalState();
 
-    if (this.supabase && this.tablesReady) {
+    if (await this.ensureTablesReady()) {
       try {
-        await this.supabase.from('discovery_sources').delete().eq('value', target.value);
+        await this.supabase!.from('discovery_sources').delete().eq('value', target.value);
       } catch (err) {
         console.error('Supabase source delete error:', err);
       }
@@ -1191,9 +1239,9 @@ class SupabaseRepository {
     }
     this.saveLocalState();
 
-    if (this.supabase && this.tablesReady) {
+    if (await this.ensureTablesReady()) {
       try {
-        await this.supabase.from('discovery_runs').insert({
+        await this.supabase!.from('discovery_runs').insert({
           trigger_type: run.triggerType,
           status: run.status,
           started_at: run.startedAt,

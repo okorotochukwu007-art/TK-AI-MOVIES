@@ -1,0 +1,25 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["supabase/schema.sql", "data/**"]
+
+# Automatically run YouTube AI movie discovery every 2 hours on Netlify
+[functions."scheduled-discover"]
+  schedule = "0 */2 * * *"
+
+# Route all /api/* requests to the Express backend running inside Netlify Functions
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
+
+# SPA Fallback for direct deep links (?movie=...) and client routes
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

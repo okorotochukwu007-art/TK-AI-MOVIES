@@ -558,10 +558,18 @@ app.post('/api/cron/discover', async (req, res) => {
   }
 });
 
-// Background scheduler loop while container is warm
-setInterval(() => {
-  void triggerScheduledDiscoveryIfNeeded('scheduled');
-}, 5 * 60 * 1000);
+const IS_SERVERLESS_RUNTIME = Boolean(
+  process.env.NETLIFY ||
+    process.env.NETLIFY_FUNCTIONS_ENV ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME
+);
+
+// Background scheduler loop while container is warm (non-serverless)
+if (!IS_SERVERLESS_RUNTIME) {
+  setInterval(() => {
+    void triggerScheduledDiscoveryIfNeeded('scheduled');
+  }, 5 * 60 * 1000);
+}
 
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
@@ -579,7 +587,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`AETHERIA Streaming Platform listening on http://localhost:${PORT}`);
+    console.log(`TK STORYWORLD Streaming Platform listening on http://localhost:${PORT}`);
     // Trigger initial startup discovery check asynchronously
     setTimeout(() => {
       void triggerScheduledDiscoveryIfNeeded('startup');
@@ -587,4 +595,9 @@ async function startServer() {
   });
 }
 
-void startServer();
+if (!IS_SERVERLESS_RUNTIME) {
+  void startServer();
+}
+
+export { app };
+

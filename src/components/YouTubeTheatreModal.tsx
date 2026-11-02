@@ -424,12 +424,52 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
     }
   };
 
-  const toggleFullscreen = () => {
-    if (!videoViewportRef.current) return;
-    if (document.fullscreenElement) {
-      void document.exitFullscreen();
-    } else {
-      void videoViewportRef.current.requestFullscreen();
+  const [isMobileTheatreExpanded, setIsMobileTheatreExpanded] = useState(false);
+
+  const toggleFullscreen = async () => {
+    const el = videoViewportRef.current as any;
+    if (!el) return;
+    try {
+      const doc = document as any;
+      if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+        if (doc.exitFullscreen) {
+          await doc.exitFullscreen();
+        } else if (doc.webkitExitFullscreen) {
+          doc.webkitExitFullscreen();
+        }
+        if (
+          typeof screen !== 'undefined' &&
+          screen.orientation &&
+          typeof (screen.orientation as any).unlock === 'function'
+        ) {
+          try {
+            (screen.orientation as any).unlock();
+          } catch {
+            // ignore
+          }
+        }
+        setIsMobileTheatreExpanded(false);
+      } else if (el.requestFullscreen) {
+        await el.requestFullscreen();
+        if (
+          typeof screen !== 'undefined' &&
+          screen.orientation &&
+          typeof (screen.orientation as any).lock === 'function'
+        ) {
+          try {
+            await (screen.orientation as any).lock('landscape');
+          } catch {
+            // ignore if device does not allow orientation lock
+          }
+        }
+      } else if (el.webkitRequestFullscreen) {
+        el.webkitRequestFullscreen();
+      } else {
+        // Fallback for mobile browsers that restrict div fullscreen (e.g. iPhone Safari)
+        setIsMobileTheatreExpanded((prev) => !prev);
+      }
+    } catch {
+      setIsMobileTheatreExpanded((prev) => !prev);
     }
   };
 
@@ -500,28 +540,28 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-2 sm:p-6 overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/95 backdrop-blur-md p-0 sm:p-6 overflow-hidden"
       role="dialog"
       aria-modal="true"
       aria-label={movie.title}
     >
-      <div className="relative w-full max-w-5xl rounded-2xl bg-[#0B0D13] border border-white/10 shadow-2xl overflow-hidden my-auto max-h-[94vh] flex flex-col">
+      <div className="relative w-full max-w-5xl h-[100dvh] sm:h-auto sm:max-h-[94vh] sm:rounded-2xl bg-[#0B0D13] border-0 sm:border border-white/10 shadow-2xl overflow-hidden flex flex-col">
         {/* Top Cinema Bar */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10 bg-[#07080C]">
-          <div className="flex items-center gap-3 min-w-0">
-            <span className="brand-luxury-red text-xs font-black uppercase whitespace-nowrap shrink-0">
+        <div className="flex items-center justify-between px-3.5 sm:px-5 py-3 border-b border-white/10 bg-[#07080C] shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <span className="brand-luxury-red text-[11px] sm:text-xs font-black uppercase whitespace-nowrap shrink-0">
               TK STORYWORLD
             </span>
             <span className="text-slate-600" aria-hidden="true">
               ·
             </span>
-            <span className="font-display text-sm font-semibold text-white truncate">
+            <span className="font-display text-xs sm:text-sm font-semibold text-white truncate">
               {movie.title}
             </span>
-            <span className="text-slate-600" aria-hidden="true">
+            <span className="hidden md:inline text-slate-600" aria-hidden="true">
               ·
             </span>
-            <span className="text-xs text-slate-400 whitespace-nowrap shrink-0">
+            <span className="hidden md:inline text-xs text-slate-400 whitespace-nowrap shrink-0">
               {movie.primaryCategory}
             </span>
             {movie.episodeNumber && (
@@ -536,10 +576,10 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
               </>
             )}
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               onClick={() => setShowShareCard((prev) => !prev)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-semibold text-white transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-semibold text-white transition-colors cursor-pointer"
               title="Share Movie to WhatsApp or Copy Link"
             >
               <Share2 className="w-3.5 h-3.5 text-[#F59E0B]" />
@@ -547,7 +587,7 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
             </button>
             <button
               onClick={onClose}
-              className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              className="p-2 rounded-lg text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 transition-colors cursor-pointer"
               aria-label="Close Theatre"
             >
               <X className="w-5 h-5" />
@@ -555,181 +595,185 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
           </div>
         </div>
 
-        {/* Scrollable Theatre & Community Viewport */}
-        <div className="overflow-y-auto flex-1">
-          {/* 16:9 Custom AETHERIA Cinema Player (Zero External Chrome) */}
-          <div
-            ref={videoViewportRef}
-            className="relative w-full aspect-video bg-black overflow-hidden select-none group"
-          >
-            {hasStarted && !streamError ? (
-              <>
-                {/* Cropped & pointer-locked stream frame so external chrome/logos never appear */}
-                <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                  <div className="w-full h-full scale-[1.18] origin-center">
-                    <div id={playerContainerId} className="w-full h-full" />
-                  </div>
+        {/* Sticky 16:9 Cinema Video Player (Stays pinned at top on phones while scrolling comments/episodes below!) */}
+        <div
+          ref={videoViewportRef}
+          className={`relative w-full aspect-video bg-black overflow-hidden select-none group shrink-0 border-b border-white/10 ${
+            isMobileTheatreExpanded ? 'fixed inset-0 z-50 aspect-auto h-full' : ''
+          }`}
+        >
+          {hasStarted && !streamError ? (
+            <>
+              {/* Cropped & pointer-locked stream frame so external chrome/logos never appear */}
+              <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                <div className="w-full h-full scale-[1.18] origin-center">
+                  <div id={playerContainerId} className="w-full h-full" />
                 </div>
+              </div>
 
-                {/* Top-Left Luxury Red TK STORYWORLD Screen Watermark */}
-                <div className="absolute top-4 left-5 z-20 pointer-events-none">
-                  <span className="brand-luxury-red text-xs sm:text-sm font-black uppercase">
-                    TK STORYWORLD
-                  </span>
-                </div>
+              {/* Top-Left Luxury Red TK STORYWORLD Screen Watermark */}
+              <div className="absolute top-3 left-3.5 sm:top-4 sm:left-5 z-20 pointer-events-none">
+                <span className="brand-luxury-red text-[11px] sm:text-sm font-black uppercase">
+                  TK STORYWORLD
+                </span>
+              </div>
 
-                {/* Clickable center play/pause surface */}
-                <div
-                  onClick={togglePlayPause}
-                  className="absolute inset-0 z-10 cursor-pointer flex items-center justify-center"
-                >
-                  {!playerPlaying && (
-                    <div className=" inset-0 absolute bg-black/75 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center space-y-3">
-                      <div className="brand-luxury-red text-xs font-black uppercase">
-                        TK STORYWORLD CINEMA
-                      </div>
-                      <div className="w-16 h-16 rounded-full bg-[#E11D48] text-white flex items-center justify-center shadow-2xl transform hover:scale-105 transition-transform">
-                        <Play className="w-7 h-7 fill-current ml-0.5" />
-                      </div>
-                      <div className="font-display text-base font-bold text-white">
-                        Paused · {movie.title}
-                      </div>
-                      <div className="text-xs text-slate-300">
-                        Click anywhere to resume movie
-                      </div>
+              {/* Clickable center play/pause surface */}
+              <div
+                onClick={togglePlayPause}
+                className="absolute inset-0 z-10 cursor-pointer flex items-center justify-center"
+              >
+                {!playerPlaying && (
+                  <div className="inset-0 absolute bg-black/75 backdrop-blur-sm flex flex-col items-center justify-center p-4 sm:p-6 text-center space-y-2.5">
+                    <div className="brand-luxury-red text-xs font-black uppercase">
+                      TK STORYWORLD CINEMA
                     </div>
-                  )}
-                </div>
+                    <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-[#E11D48] text-white flex items-center justify-center shadow-2xl transform hover:scale-105 transition-transform">
+                      <Play className="w-6 h-6 sm:w-7 sm:h-7 fill-current ml-0.5" />
+                    </div>
+                    <div className="font-display text-sm sm:text-base font-bold text-white line-clamp-1">
+                      Paused · {movie.title}
+                    </div>
+                    <div className="text-xs text-slate-300">
+                      Tap anywhere to resume movie
+                    </div>
+                  </div>
+                )}
+              </div>
 
-                {/* Custom AETHERIA Cinema Controls Bar */}
+              {/* Custom TK STORYWORLD Touch-Friendly Cinema Controls Bar */}
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="absolute bottom-0 inset-x-0 z-20 bg-gradient-to-t from-black/95 via-black/75 to-transparent pt-6 pb-2.5 sm:pb-3.5 px-3 sm:px-6 space-y-2"
+              >
+                {/* Interactive Timeline Scrubber (Taller touch target for mobile fingers) */}
                 <div
-                  onClick={(e) => e.stopPropagation()}
-                  className="absolute bottom-0 inset-x-0 z-20 bg-gradient-to-t from-black/95 via-black/70 to-transparent pt-8 pb-3.5 px-4 sm:px-6 space-y-2.5"
+                  onClick={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const clickRatio = Math.max(
+                      0,
+                      Math.min(1, (e.clientX - rect.left) / rect.width)
+                    );
+                    handleSeek(clickRatio * totalDuration);
+                  }}
+                  className="w-full py-1.5 cursor-pointer"
                 >
-                  {/* Interactive Timeline Scrubber */}
-                  <div
-                    onClick={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      const clickRatio = Math.max(
-                        0,
-                        Math.min(1, (e.clientX - rect.left) / rect.width)
-                      );
-                      handleSeek(clickRatio * totalDuration);
-                    }}
-                    className="w-full h-2 rounded-full bg-white/20 hover:h-2.5 transition-all cursor-pointer relative overflow-hidden"
-                  >
+                  <div className="w-full h-2 rounded-full bg-white/25 hover:h-2.5 transition-all relative overflow-hidden">
                     <div
                       className="h-full bg-[#E11D48] rounded-full"
                       style={{ width: `${progressPct}%` }}
                     />
                   </div>
+                </div>
 
-                  {/* Transport Buttons & Time */}
-                  <div className="flex items-center justify-between gap-4 text-xs text-white">
-                    <div className="flex items-center gap-3 sm:gap-4">
-                      <button
-                        onClick={togglePlayPause}
-                        className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white cursor-pointer"
-                        title={playerPlaying ? 'Pause' : 'Play'}
-                      >
-                        {playerPlaying ? (
-                          <Pause className="w-4 h-4 fill-current" />
-                        ) : (
-                          <Play className="w-4 h-4 fill-current" />
-                        )}
-                      </button>
+                {/* Transport Buttons & Time */}
+                <div className="flex items-center justify-between gap-2 sm:gap-4 text-xs text-white">
+                  <div className="flex items-center gap-2 sm:gap-3.5">
+                    <button
+                      onClick={togglePlayPause}
+                      className="p-2 rounded-lg bg-white/15 hover:bg-white/25 text-white cursor-pointer"
+                      title={playerPlaying ? 'Pause' : 'Play'}
+                    >
+                      {playerPlaying ? (
+                        <Pause className="w-4 h-4 fill-current" />
+                      ) : (
+                        <Play className="w-4 h-4 fill-current" />
+                      )}
+                    </button>
 
-                      <button
-                        onClick={() => handleSeek(currentTimestamp - 10)}
-                        className="p-1.5 rounded-lg hover:bg-white/10 text-slate-300 hover:text-white cursor-pointer"
-                        title="Rewind 10s"
-                      >
-                        <Rewind className="w-4 h-4" />
-                      </button>
+                    <button
+                      onClick={() => handleSeek(currentTimestamp - 10)}
+                      className="p-2 rounded-lg hover:bg-white/10 text-slate-200 hover:text-white cursor-pointer"
+                      title="Rewind 10s"
+                    >
+                      <Rewind className="w-4 h-4" />
+                    </button>
 
-                      <button
-                        onClick={() => handleSeek(currentTimestamp + 10)}
-                        className="p-1.5 rounded-lg hover:bg-white/10 text-slate-300 hover:text-white cursor-pointer"
-                        title="Forward 10s"
-                      >
-                        <FastForward className="w-4 h-4" />
-                      </button>
+                    <button
+                      onClick={() => handleSeek(currentTimestamp + 10)}
+                      className="p-2 rounded-lg hover:bg-white/10 text-slate-200 hover:text-white cursor-pointer"
+                      title="Forward 10s"
+                    >
+                      <FastForward className="w-4 h-4" />
+                    </button>
 
-                      <button
-                        onClick={toggleMute}
-                        className="p-1.5 rounded-lg hover:bg-white/10 text-slate-300 hover:text-white cursor-pointer"
-                        title={isMuted ? 'Unmute' : 'Mute'}
-                      >
-                        {isMuted ? (
-                          <VolumeX className="w-4 h-4 text-rose-400" />
-                        ) : (
-                          <Volume2 className="w-4 h-4" />
-                        )}
-                      </button>
+                    <button
+                      onClick={toggleMute}
+                      className="p-2 rounded-lg hover:bg-white/10 text-slate-200 hover:text-white cursor-pointer"
+                      title={isMuted ? 'Unmute' : 'Mute'}
+                    >
+                      {isMuted ? (
+                        <VolumeX className="w-4 h-4 text-rose-400" />
+                      ) : (
+                        <Volume2 className="w-4 h-4" />
+                      )}
+                    </button>
 
-                      <span className="font-mono tabular-nums text-slate-200">
-                        {formatSec(currentTimestamp)} /{' '}
-                        {formatSec(totalDuration)}
-                      </span>
-                    </div>
+                    <span className="font-mono text-[11px] sm:text-xs tabular-nums text-slate-200">
+                      {formatSec(currentTimestamp)} / {formatSec(totalDuration)}
+                    </span>
+                  </div>
 
-                    <div className="flex items-center gap-3">
-                      <span className="hidden sm:inline brand-luxury-red text-[11px] font-black uppercase">
-                        TK STORYWORLD HD
-                      </span>
-                      <button
-                        onClick={toggleFullscreen}
-                        className="p-1.5 rounded-lg hover:bg-white/10 text-slate-300 hover:text-white cursor-pointer"
-                        title="Fullscreen"
-                      >
-                        <Maximize2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                  <div className="flex items-center gap-2.5">
+                    <span className="hidden sm:inline brand-luxury-red text-[11px] font-black uppercase">
+                      TK STORYWORLD HD
+                    </span>
+                    <button
+                      onClick={() => void toggleFullscreen()}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-[11px] font-semibold cursor-pointer"
+                      title="Fullscreen Cinema"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5" />
+                      <span className="sm:hidden">Full Screen</span>
+                    </button>
                   </div>
                 </div>
-              </>
-            ) : streamError ? (
-              <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center bg-gradient-to-b from-[#131620] to-[#07080C]">
-                <ShieldAlert className="w-12 h-12 text-[#F59E0B] mb-4" />
-                <h3 className="font-display text-xl font-bold text-white mb-2">
-                  Stream Currently Unavailable
-                </h3>
-                <p className="text-sm text-slate-300 max-w-md leading-relaxed">
-                  {streamError}
-                </p>
               </div>
-            ) : (
-              <div className="relative w-full h-full">
-                <CinemaPosterImage
-                  src={movie.backdropUrl}
-                  fallbackVideoId={movie.youtubeVideoId}
-                  alt={movie.title}
-                  category={movie.primaryCategory}
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#0B0D13] via-black/50 to-transparent" />
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
-                  <button
-                    onClick={() => {
-                      setHasStarted(true);
-                      setPlayerPlaying(true);
-                    }}
-                    className="group flex items-center gap-3 px-7 py-3.5 rounded-xl bg-[#E11D48] hover:bg-[#BE123C] text-white font-semibold shadow-lg transition-transform duration-150 hover:scale-105 cursor-pointer"
-                  >
-                    <Play className="w-5 h-5 fill-current" />
-                    <span>
-                      {resumeSeconds > 15
-                        ? `Resume Movie (${formatSec(resumeSeconds)})`
-                        : 'Play Full Movie'}
-                    </span>
-                  </button>
-                </div>
+            </>
+          ) : streamError ? (
+            <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-b from-[#131620] to-[#07080C]">
+              <ShieldAlert className="w-10 h-10 sm:w-12 sm:h-12 text-[#F59E0B] mb-3" />
+              <h3 className="font-display text-lg sm:text-xl font-bold text-white mb-1.5">
+                Stream Currently Unavailable
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-300 max-w-md leading-relaxed">
+                {streamError}
+              </p>
+            </div>
+          ) : (
+            <div className="relative w-full h-full">
+              <CinemaPosterImage
+                src={movie.backdropUrl}
+                fallbackVideoId={movie.youtubeVideoId}
+                alt={movie.title}
+                category={movie.primaryCategory}
+                className="w-full h-full object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#0B0D13] via-black/50 to-transparent" />
+              <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
+                <button
+                  onClick={() => {
+                    setHasStarted(true);
+                    setPlayerPlaying(true);
+                  }}
+                  className="group flex items-center gap-3 px-6 sm:px-7 py-3.5 rounded-xl bg-[#E11D48] hover:bg-[#BE123C] text-white text-sm sm:text-base font-semibold shadow-lg transition-transform duration-150 hover:scale-105 cursor-pointer"
+                >
+                  <Play className="w-5 h-5 fill-current" />
+                  <span>
+                    {resumeSeconds > 15
+                      ? `Resume Movie (${formatSec(resumeSeconds)})`
+                      : 'Play Full Movie'}
+                  </span>
+                </button>
               </div>
-            )}
-          </div>
+            </div>
+          )}
+        </div>
 
+        {/* Scrollable Details, Episodes & Community Viewport below the pinned video player */}
+        <div className="overflow-y-auto flex-1">
           {/* Movie Synopsis, Likes, Ratings & Comment Threads */}
-          <div className="p-6 sm:p-8 space-y-8">
+          <div className="p-4 sm:p-8 space-y-7 sm:space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
               <div className="lg:col-span-2 space-y-4">
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">

@@ -786,7 +786,7 @@ export default function App() {
     return list;
   }, [movies, selectedCategory, categoryMoviesMap, searchQuery, sortMoviesList]);
 
-  const renderMovieCard = (movie: MovieItem) => {
+  const renderMovieCard = (movie: MovieItem, isHorizontalMobile = false) => {
     const savedProgress = progressMap.get(movie.id);
     const inList = watchlistIds.has(movie.id);
     const eng = engagementMap[movie.id];
@@ -807,7 +807,11 @@ export default function App() {
       <div
         key={movie.id}
         onClick={() => openMovieModal(movie, false)}
-        className="group relative rounded-xl bg-[#0E1118] border border-white/10 hover:border-white/25 overflow-hidden transition-transform duration-150 hover:-translate-y-1 cursor-pointer flex flex-col"
+        className={`group relative rounded-xl bg-[#0E1118] border border-white/10 hover:border-white/25 overflow-hidden transition-transform duration-150 hover:-translate-y-1 cursor-pointer flex flex-col ${
+          isHorizontalMobile
+            ? 'w-[78vw] max-w-[290px] sm:w-auto sm:max-w-none shrink-0 snap-start'
+            : ''
+        }`}
       >
         <div className="relative aspect-video w-full bg-black overflow-hidden">
           <CinemaPosterImage
@@ -826,17 +830,17 @@ export default function App() {
             </span>
           </div>
 
-          {/* Hover Play Overlay */}
-          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-black/40">
+          {/* Touch-Friendly Mobile + Desktop Play Overlay */}
+          <div className="absolute inset-0 flex items-center justify-center opacity-95 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-150 bg-black/20 sm:bg-black/40">
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 openMovieModal(movie, true);
               }}
-              className="w-11 h-11 rounded-full bg-[#E11D48] text-white flex items-center justify-center shadow-lg transform scale-95 group-hover:scale-100 transition-transform cursor-pointer"
+              className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[#E11D48]/95 text-white flex items-center justify-center shadow-lg transform sm:scale-95 sm:group-hover:scale-100 transition-transform cursor-pointer"
               aria-label={`Play ${movie.title}`}
             >
-              <Play className="w-5 h-5 fill-current ml-0.5" />
+              <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current ml-0.5" />
             </button>
           </div>
 
@@ -2058,10 +2062,10 @@ export default function App() {
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
                     {nigerianAndAfricanMovies
                       .slice(0, 8)
-                      .map((m) => renderMovieCard(m))}
+                      .map((m) => renderMovieCard(m, true))}
                   </div>
                 </section>
               )}
@@ -2086,14 +2090,16 @@ export default function App() {
                         setSelectedCategory('Contract Marriage');
                         setActiveView('categories');
                       }}
-                      className="text-xs text-slate-400 hover:text-white inline-flex items-center gap-1 cursor-pointer"
+                      className="text-xs text-slate-400 hover:text-white inline-flex items-center gap-1 cursor-pointer shrink-0"
                     >
-                      <span>Explore Contract Marriage ({contractMarriageMovies.length})</span>
+                      <span>Explore ({contractMarriageMovies.length})</span>
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                    {contractMarriageMovies.slice(0, 8).map((m) => renderMovieCard(m))}
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                    {contractMarriageMovies
+                      .slice(0, 8)
+                      .map((m) => renderMovieCard(m, true))}
                   </div>
                 </section>
               )}
@@ -2118,14 +2124,16 @@ export default function App() {
                         setSelectedCategory('Secret Marriage');
                         setActiveView('categories');
                       }}
-                      className="text-xs text-slate-400 hover:text-white inline-flex items-center gap-1 cursor-pointer"
+                      className="text-xs text-slate-400 hover:text-white inline-flex items-center gap-1 cursor-pointer shrink-0"
                     >
-                      <span>Explore Secret Marriage ({secretMarriageMovies.length})</span>
+                      <span>Explore ({secretMarriageMovies.length})</span>
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                    {secretMarriageMovies.slice(0, 8).map((m) => renderMovieCard(m))}
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                    {secretMarriageMovies
+                      .slice(0, 8)
+                      .map((m) => renderMovieCard(m, true))}
                   </div>
                 </section>
               )}
@@ -2150,14 +2158,16 @@ export default function App() {
                         setSelectedCategory('Billionaire Romance');
                         setActiveView('categories');
                       }}
-                      className="text-xs text-slate-400 hover:text-white inline-flex items-center gap-1 cursor-pointer"
+                      className="text-xs text-slate-400 hover:text-white inline-flex items-center gap-1 cursor-pointer shrink-0"
                     >
-                      <span>Explore Billionaire & CEO ({ceoAndBillionaireMovies.length})</span>
+                      <span>Explore ({ceoAndBillionaireMovies.length})</span>
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                    {ceoAndBillionaireMovies.slice(0, 8).map((m) => renderMovieCard(m))}
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                    {ceoAndBillionaireMovies
+                      .slice(0, 8)
+                      .map((m) => renderMovieCard(m, true))}
                   </div>
                 </section>
               )}
@@ -2182,14 +2192,16 @@ export default function App() {
                         setSelectedCategory('Revenge Romance');
                         setActiveView('categories');
                       }}
-                      className="text-xs text-slate-400 hover:text-white inline-flex items-center gap-1 cursor-pointer"
+                      className="text-xs text-slate-400 hover:text-white inline-flex items-center gap-1 cursor-pointer shrink-0"
                     >
-                      <span>Explore Revenge Romance ({revengeRomanceMovies.length})</span>
+                      <span>Explore ({revengeRomanceMovies.length})</span>
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                    {revengeRomanceMovies.slice(0, 8).map((m) => renderMovieCard(m))}
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                    {revengeRomanceMovies
+                      .slice(0, 8)
+                      .map((m) => renderMovieCard(m, true))}
                   </div>
                 </section>
               )}
@@ -2214,14 +2226,16 @@ export default function App() {
                         setSelectedCategory('Emotional Love Stories');
                         setActiveView('categories');
                       }}
-                      className="text-xs text-slate-400 hover:text-white inline-flex items-center gap-1 cursor-pointer"
+                      className="text-xs text-slate-400 hover:text-white inline-flex items-center gap-1 cursor-pointer shrink-0"
                     >
-                      <span>Explore Emotional Stories ({emotionalLoveMovies.length})</span>
+                      <span>Explore ({emotionalLoveMovies.length})</span>
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                    {emotionalLoveMovies.slice(0, 8).map((m) => renderMovieCard(m))}
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                    {emotionalLoveMovies
+                      .slice(0, 8)
+                      .map((m) => renderMovieCard(m, true))}
                   </div>
                 </section>
               )}
@@ -2246,14 +2260,16 @@ export default function App() {
                         setSelectedCategory('Fantasy Romance');
                         setActiveView('categories');
                       }}
-                      className="text-xs text-slate-400 hover:text-white inline-flex items-center gap-1 cursor-pointer"
+                      className="text-xs text-slate-400 hover:text-white inline-flex items-center gap-1 cursor-pointer shrink-0"
                     >
-                      <span>Explore Fantasy & Animated ({fantasyAndAnimatedMovies.length})</span>
+                      <span>Explore ({fantasyAndAnimatedMovies.length})</span>
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                    {fantasyAndAnimatedMovies.slice(0, 8).map((m) => renderMovieCard(m))}
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                    {fantasyAndAnimatedMovies
+                      .slice(0, 8)
+                      .map((m) => renderMovieCard(m, true))}
                   </div>
                 </section>
               )}
@@ -2281,14 +2297,16 @@ export default function App() {
                       setSortBy('most_loved');
                       setActiveView('categories');
                     }}
-                    className="text-xs text-[#F59E0B] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                    className="text-xs text-[#F59E0B] hover:underline inline-flex items-center gap-1 cursor-pointer shrink-0"
                   >
-                    <span>Sort All by Most Loved</span>
+                    <span>Sort All</span>
                     <ChevronRight className="w-3.5 h-3.5" />
                   </button>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                  {mostLovedMovies.slice(0, 8).map((m) => renderMovieCard(m))}
+                <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                  {mostLovedMovies
+                    .slice(0, 8)
+                    .map((m) => renderMovieCard(m, true))}
                 </div>
               </section>
 
@@ -2309,14 +2327,16 @@ export default function App() {
                     </div>
                     <button
                       onClick={() => setActiveView('series')}
-                      className="text-xs text-slate-400 hover:text-white inline-flex items-center gap-1 cursor-pointer"
+                      className="text-xs text-slate-400 hover:text-white inline-flex items-center gap-1 cursor-pointer shrink-0"
                     >
                       <span>All Series</span>
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                    {newlyReleasedEpisodes.slice(0, 4).map((m) => renderMovieCard(m))}
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                    {newlyReleasedEpisodes
+                      .slice(0, 4)
+                      .map((m) => renderMovieCard(m, true))}
                   </div>
                 </section>
               )}
@@ -2326,7 +2346,7 @@ export default function App() {
       </main>
 
       {/* CLEAN EDITORIAL FOOTER */}
-      <footer className="border-t border-white/10 bg-[#050505] py-8 px-5 sm:px-10">
+      <footer className="border-t border-white/10 bg-[#050505] py-8 pb-24 md:pb-8 px-5 sm:px-10">
         <div className="max-w-[1400px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
           <div>
             <span className="brand-luxury-red text-sm font-black uppercase">
@@ -2335,7 +2355,7 @@ export default function App() {
             · AI Movie & Series Streaming Platform · Nigerian & International AI
             Love Cinema
           </div>
-          <div className="flex items-center gap-6">
+          <div className="flex flex-wrap items-center justify-center gap-5 sm:gap-6">
             <button
               onClick={() => setActiveView('nigerian')}
               className="hover:text-slate-300 cursor-pointer"
@@ -2371,6 +2391,108 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* FIXED BOTTOM MOBILE THUMB NAVIGATION BAR (For One-Handed Phone Viewing) */}
+      <nav
+        aria-label="Mobile Bottom Navigation"
+        className="fixed bottom-0 inset-x-0 z-40 md:hidden bg-[#07090F]/95 backdrop-blur-xl border-t border-white/10 px-2 py-1.5 flex items-center justify-around"
+      >
+        <button
+          type="button"
+          onClick={() => {
+            setActiveView('home');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          className={`flex flex-col items-center justify-center gap-0.5 py-1 px-2.5 rounded-xl text-[10px] font-medium transition-colors cursor-pointer ${
+            activeView === 'home' ? 'text-[#E11D48] font-bold' : 'text-slate-400'
+          }`}
+        >
+          <Film className="w-4 h-4" />
+          <span>Home</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveView('nigerian');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          className={`flex flex-col items-center justify-center gap-0.5 py-1 px-2.5 rounded-xl text-[10px] font-medium transition-colors cursor-pointer ${
+            activeView === 'nigerian'
+              ? 'text-[#F59E0B] font-bold'
+              : 'text-slate-400'
+          }`}
+        >
+          <Sparkles className="w-4 h-4" />
+          <span>Nigerian AI</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveView('categories');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          className={`flex flex-col items-center justify-center gap-0.5 py-1 px-2.5 rounded-xl text-[10px] font-medium transition-colors cursor-pointer ${
+            activeView === 'categories'
+              ? 'text-[#E11D48] font-bold'
+              : 'text-slate-400'
+          }`}
+        >
+          <Layers className="w-4 h-4" />
+          <span>Genres</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveView('series');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          className={`flex flex-col items-center justify-center gap-0.5 py-1 px-2.5 rounded-xl text-[10px] font-medium transition-colors cursor-pointer ${
+            activeView === 'series'
+              ? 'text-[#E11D48] font-bold'
+              : 'text-slate-400'
+          }`}
+        >
+          <Play className="w-4 h-4" />
+          <span>Series</span>
+        </button>
+
+        {isAdminAuthenticated ? (
+          <button
+            type="button"
+            onClick={() => {
+              setActiveView('admin');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className={`flex flex-col items-center justify-center gap-0.5 py-1 px-2.5 rounded-xl text-[10px] font-medium transition-colors cursor-pointer ${
+              activeView === 'admin'
+                ? 'text-[#E11D48] font-bold'
+                : 'text-slate-400'
+            }`}
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+            <span>Admin</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setActiveView('watchlist');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className={`flex flex-col items-center justify-center gap-0.5 py-1 px-2.5 rounded-xl text-[10px] font-medium transition-colors cursor-pointer ${
+              activeView === 'watchlist'
+                ? 'text-[#E11D48] font-bold'
+                : 'text-slate-400'
+            }`}
+          >
+            <Bookmark className="w-4 h-4" />
+            <span>Watchlist</span>
+          </button>
+        )}
+      </nav>
 
       {/* CUSTOM AETHERIA CINEMA THEATRE PLAYER & COMMUNITY MODAL */}
       {activeModalMovie && (

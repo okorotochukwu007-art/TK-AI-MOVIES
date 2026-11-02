@@ -30,7 +30,9 @@ app.use((req, _res, next) => {
       req.url.startsWith('/movies') ||
       req.url.startsWith('/engagement') ||
       req.url.startsWith('/watch-history') ||
+      req.url.startsWith('/history') ||
       req.url.startsWith('/watchlist') ||
+      req.url.startsWith('/auth') ||
       req.url.startsWith('/admin'))
   ) {
     req.url = `/api${req.url}`;

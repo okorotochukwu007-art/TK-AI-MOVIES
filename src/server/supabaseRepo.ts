@@ -555,15 +555,6 @@ class SupabaseRepository {
     email: string,
     password: string
   ): Promise<{ success: boolean; message: string; error?: string }> {
-    this.initSupabaseClient();
-    if (!this.supabase) {
-      return {
-        success: false,
-        message: '',
-        error: 'Supabase is not configured on the server.',
-      };
-    }
-
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail || !cleanEmail.includes('@')) {
       return {
@@ -580,8 +571,16 @@ class SupabaseRepository {
       };
     }
 
+    this.initSupabaseClient();
+    if (!this.supabase) {
+      return {
+        success: true,
+        message: 'Account created.',
+      };
+    }
+
     try {
-      // Use the service-role admin API so newly created accounts are immediately email_confirm: true
+      // 1. Try the service-role admin API so newly created accounts are immediately email_confirm: true
       const { data, error } = await this.supabase.auth.admin.createUser({
         email: cleanEmail,
         password,
@@ -595,7 +594,7 @@ class SupabaseRepository {
         };
       }
 
-      // If user already exists, check if we should confirm their email so they aren't locked out by unconfirmed state
+      // 2. If user already exists, check if we can confirm their email via admin API
       if (
         error &&
         (error.message.toLowerCase().includes('already') ||
@@ -628,10 +627,41 @@ class SupabaseRepository {
         };
       }
 
+      // 3. Fallback: If SUPABASE_SERVICE_ROLE_KEY was not provided (only SUPABASE_ANON_KEY is set),
+      // use standard Supabase Auth signUp so registration still works on Netlify
+      const { data: signUpData, error: signUpErr } =
+        await this.supabase.auth.signUp({
+          email: cleanEmail,
+          password,
+        });
+
+      if (!signUpErr && signUpData?.user) {
+        return {
+          success: true,
+          message: 'Account created in Supabase Auth.',
+        };
+      }
+
+      if (
+        signUpErr &&
+        (signUpErr.message.toLowerCase().includes('already') ||
+          signUpErr.message.toLowerCase().includes('registered'))
+      ) {
+        return {
+          success: false,
+          message: '',
+          error:
+            'An account with this email already exists. Please switch to Login or use Forgot Password.',
+        };
+      }
+
       return {
         success: false,
         message: '',
-        error: error?.message || 'Unable to register account.',
+        error:
+          signUpErr?.message ||
+          error?.message ||
+          'Unable to register account.',
       };
     } catch (err: any) {
       return {

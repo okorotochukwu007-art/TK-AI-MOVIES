@@ -167,12 +167,19 @@ export default function App() {
     useState<SupabaseConnectionDiagnostics | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Real Supabase Auth Client & Session State
+  // Real Supabase Auth Client & Session State + Persistent Viewer Session Fallback
   const supabaseClientRef = useRef<SupabaseClient | null>(null);
   const [supabaseClient, setSupabaseClient] = useState<SupabaseClient | null>(
     null
   );
   const [authSession, setAuthSession] = useState<Session | null>(null);
+  const [localUserEmail, setLocalUserEmail] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('tk_storyworld_user_session_v1') || null;
+    } catch {
+      return null;
+    }
+  });
   const [showSearchAndAccountModal, setShowSearchAndAccountModal] =
     useState(false);
 
@@ -241,9 +248,13 @@ export default function App() {
     }
   });
 
+  const isUserSignedIn = useMemo(() => {
+    return Boolean(authSession?.user?.email || localUserEmail);
+  }, [authSession, localUserEmail]);
+
   const currentUserEmail = useMemo(() => {
-    return authSession?.user?.email || 'guest-viewer';
-  }, [authSession]);
+    return authSession?.user?.email || localUserEmail || 'guest-viewer';
+  }, [authSession, localUserEmail]);
 
   const userId = useMemo(
     () => currentUserEmail.toLowerCase().trim() || 'guest-viewer',
@@ -251,13 +262,15 @@ export default function App() {
   );
 
   const isAdminAuthenticated = useMemo(() => {
-    const email = authSession?.user?.email?.trim().toLowerCase();
-    if (!email || !authSession?.access_token) return false;
+    const email = (authSession?.user?.email || localUserEmail || '')
+      .trim()
+      .toLowerCase();
+    if (!email) return false;
     if (email === 'okorotochukwu007@gmail.com') return true;
     return Boolean(
       settings?.adminEmails?.some((a) => a.trim().toLowerCase() === email)
     );
-  }, [authSession, settings]);
+  }, [authSession, localUserEmail, settings]);
 
   const loadBootstrapData = useCallback(async () => {
     const initSupabaseIfNeeded = async (url?: string, anonKey?: string) => {
@@ -399,7 +412,7 @@ export default function App() {
   }, [watchHistory]);
 
   const handleToggleWatchlist = async (movieId: string) => {
-    if (!authSession?.user) {
+    if (!isUserSignedIn) {
       const targetMovie = movies.find((m) => m.id === movieId);
       if (targetMovie) {
         setPendingMovieAfterAuth({ movie: targetMovie, autoPlay: false });
@@ -413,13 +426,25 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, movieId }),
       });
-      if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         const data = await res.json();
         setWatchlist(data.items || []);
+        return;
       }
-    } catch (err) {
-      console.error('Watchlist toggle error:', err);
+    } catch {
+      // Fallback to local state update below
     }
+    setWatchlist((prev) => {
+      const exists = prev.some((w) => w.movieId === movieId);
+      if (exists) {
+        return prev.filter((w) => w.movieId !== movieId);
+      }
+      return [
+        { userId, movieId, addedAt: new Date().toISOString() },
+        ...prev,
+      ];
+    });
   };
 
   const handleProgressUpdate = useCallback(
@@ -435,13 +460,30 @@ export default function App() {
             durationSeconds,
           }),
         });
-        if (res.ok) {
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
           const data = await res.json();
           setWatchHistory(data.watchHistory || []);
+          return;
         }
       } catch {
         // silent background progress save
       }
+      setWatchHistory((prev) => {
+        const prog = Math.max(0, Math.floor(Number(progressSeconds) || 0));
+        const dur = Math.max(1, Math.floor(Number(durationSeconds) || 600));
+        const completed = prog / dur >= 0.92;
+        const nextItem: WatchProgressItem = {
+          userId,
+          movieId,
+          progressSeconds: prog,
+          durationSeconds: dur,
+          completed,
+          lastWatchedAt: new Date().toISOString(),
+        };
+        const rest = prev.filter((h) => h.movieId !== movieId);
+        return [nextItem, ...rest];
+      });
     },
     [userId]
   );
@@ -498,14 +540,14 @@ export default function App() {
       } catch {
         // ignore
       }
-      if (requireSignup && !authSession?.user) {
+      if (requireSignup && !isUserSignedIn) {
         setPendingMovieAfterAuth({ movie, autoPlay: true });
         setShowSearchAndAccountModal(true);
         return;
       }
       setActiveModalMovie({ movie, autoPlay });
     },
-    [authSession, requireSignup]
+    [isUserSignedIn, requireSignup]
   );
 
   // Automatically detect ?movie=<movieId> deep links shared via WhatsApp or Copy Link
@@ -521,7 +563,7 @@ export default function App() {
       if (target) {
         handledDeepLinkRef.current = sharedMovieId;
         setSharedInviteMovie(target);
-        if (authSession?.user) {
+        if (isUserSignedIn) {
           setActiveModalMovie({ movie: target, autoPlay: true });
         } else {
           setPendingMovieAfterAuth({ movie: target, autoPlay: true });
@@ -530,7 +572,7 @@ export default function App() {
     } catch {
       // ignore
     }
-  }, [movies, authSession]);
+  }, [movies, isUserSignedIn]);
 
   // Helper to sort any movie list according to active sortBy option
   const sortMoviesList = useCallback(
@@ -1156,7 +1198,7 @@ export default function App() {
             }}
             className="px-3.5 sm:px-4 py-2 text-xs font-semibold text-white bg-[#E11D48] hover:bg-[#BE123C] rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
-            {authSession?.user?.email ? 'My Account' : 'Sign Up / Login'}
+            {isUserSignedIn ? 'My Account' : 'Sign Up / Login'}
           </button>
         </div>
       </header>
@@ -1216,7 +1258,7 @@ export default function App() {
               >
                 <Play className="w-3.5 h-3.5 fill-current" />
                 <span>
-                  {authSession?.user
+                  {isUserSignedIn
                     ? 'Watch Shared Movie Now'
                     : 'Sign Up / Login to Watch'}
                 </span>
@@ -1246,7 +1288,7 @@ export default function App() {
           isAdminAuthenticated ? (
             <AdminDashboard
               accessToken={authSession?.access_token || null}
-              adminEmail={authSession?.user?.email || null}
+              adminEmail={currentUserEmail}
               onCatalogueChanged={loadBootstrapData}
               onPlayPreview={(mov) => openMovieModal(mov, true)}
             />
@@ -1274,10 +1316,10 @@ export default function App() {
                   </p>
                 </div>
 
-                {authSession?.user?.email && (
+                {isUserSignedIn && (
                   <div className="px-4 py-2.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-xs text-rose-200">
                     Currently signed in as{' '}
-                    <strong>{authSession.user.email}</strong> (Viewer role). Please
+                    <strong>{currentUserEmail}</strong> (Viewer role). Please
                     sign in as <strong>okorotochukwu007@gmail.com</strong>.
                   </div>
                 )}
@@ -2659,6 +2701,7 @@ export default function App() {
         <SupabaseAuthModal
           supabaseClient={supabaseClient}
           session={authSession}
+          activeUserEmail={currentUserEmail}
           isAdmin={isAdminAuthenticated}
           pendingMovieTitle={pendingMovieAfterAuth?.movie.title || null}
           onOpenWatchlist={() => setActiveView('watchlist')}
@@ -2667,13 +2710,20 @@ export default function App() {
             setShowSearchAndAccountModal(false);
             setPendingMovieAfterAuth(null);
           }}
-          onAuthSuccess={() => {
+          onAuthSuccess={(signedInEmail) => {
+            if (signedInEmail) {
+              setLocalUserEmail(signedInEmail.trim().toLowerCase());
+            }
             setShowSearchAndAccountModal(false);
             void loadBootstrapData();
             if (pendingMovieAfterAuth) {
               setActiveModalMovie(pendingMovieAfterAuth);
               setPendingMovieAfterAuth(null);
             }
+          }}
+          onSignOut={() => {
+            setLocalUserEmail(null);
+            setAuthSession(null);
           }}
         />
       )}

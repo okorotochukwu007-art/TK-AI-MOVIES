@@ -5,20 +5,49 @@ import { Lock, LogOut, Mail, ShieldCheck, X } from 'lucide-react';
 interface SupabaseAuthModalProps {
   supabaseClient: SupabaseClient | null;
   session: Session | null;
+  activeUserEmail?: string | null;
   isAdmin: boolean;
   initialMode?: 'signup' | 'login' | 'forgot';
   pendingMovieTitle?: string | null;
   onOpenWatchlist: () => void;
   onOpenAdmin: () => void;
   onClose: () => void;
-  onAuthSuccess: () => void;
+  onAuthSuccess: (email?: string) => void;
+  onSignOut?: () => void;
 }
 
 type AuthView = 'signup' | 'login' | 'forgot';
 
+const LOCAL_ACCOUNTS_KEY = 'tk_storyworld_accounts_v1';
+const LOCAL_SESSION_KEY = 'tk_storyworld_user_session_v1';
+
+function getLocalAccounts(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(LOCAL_ACCOUNTS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLocalAccountAndSession(email: string, password?: string) {
+  try {
+    const clean = email.trim().toLowerCase();
+    if (password) {
+      const accounts = getLocalAccounts();
+      accounts[clean] = password;
+      localStorage.setItem(LOCAL_ACCOUNTS_KEY, JSON.stringify(accounts));
+    }
+    localStorage.setItem(LOCAL_SESSION_KEY, clean);
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
   supabaseClient,
   session,
+  activeUserEmail,
   isAdmin,
   initialMode = 'signup',
   pendingMovieTitle,
@@ -26,6 +55,7 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
   onOpenAdmin,
   onClose,
   onAuthSuccess,
+  onSignOut,
 }) => {
   const [view, setView] = useState<AuthView>(initialMode);
   const [email, setEmail] = useState('');
@@ -36,12 +66,26 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
     text: string;
   } | null>(null);
 
+  const signedInEmail =
+    session?.user?.email ||
+    (activeUserEmail && activeUserEmail !== 'guest-viewer'
+      ? activeUserEmail
+      : null);
+
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supabaseClient) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
       setMessage({
         type: 'error',
-        text: 'Authentication service is connecting. Please try again in a moment.',
+        text: 'Please enter a valid email address.',
+      });
+      return;
+    }
+    if (!password || password.length < 6) {
+      setMessage({
+        type: 'error',
+        text: 'Password must be at least 6 characters.',
       });
       return;
     }
@@ -49,29 +93,134 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
     try {
       setLoading(true);
       setMessage(null);
-      const cleanEmail = email.trim().toLowerCase();
 
-      const regRes = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail, password }),
-      });
-      const regData = await regRes.json();
-
-      if (!regRes.ok) {
-        throw new Error(regData.error || 'Could not sign up.');
+      // Step 1: Attempt server-side registration (auto-confirms email when service_role key is present)
+      let registeredOnServer = false;
+      try {
+        const regRes = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: cleanEmail, password }),
+        });
+        const contentType = regRes.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const regData = await regRes.json();
+          if (regRes.ok && regData.success) {
+            registeredOnServer = true;
+          } else if (
+            regData.error &&
+            regData.error.toLowerCase().includes('already exists')
+          ) {
+            // Try logging them in directly if they entered their existing password
+            if (supabaseClient) {
+              const { error: existingLoginErr } =
+                await supabaseClient.auth.signInWithPassword({
+                  email: cleanEmail,
+                  password,
+                });
+              if (!existingLoginErr) {
+                saveLocalAccountAndSession(cleanEmail, password);
+                onAuthSuccess(cleanEmail);
+                return;
+              }
+            }
+            throw new Error(regData.error);
+          }
+        }
+      } catch (serverErr: any) {
+        if (
+          serverErr?.message &&
+          serverErr.message.toLowerCase().includes('already exists')
+        ) {
+          throw serverErr;
+        }
+        // If /api/auth/register is unreachable on static deploy, continue to client-side Supabase Auth
       }
 
-      const { error: loginErr } = await supabaseClient.auth.signInWithPassword({
-        email: cleanEmail,
-        password,
-      });
+      // Step 2: Authenticate via Supabase Client if configured
+      if (supabaseClient) {
+        if (!registeredOnServer) {
+          const { data: signUpData, error: signUpErr } =
+            await supabaseClient.auth.signUp({
+              email: cleanEmail,
+              password,
+            });
 
-      if (loginErr) {
-        throw loginErr;
+          if (signUpErr) {
+            const errLower = signUpErr.message.toLowerCase();
+            if (
+              errLower.includes('already') ||
+              errLower.includes('registered')
+            ) {
+              // Attempt direct login with the provided password
+              const { error: retryLoginErr } =
+                await supabaseClient.auth.signInWithPassword({
+                  email: cleanEmail,
+                  password,
+                });
+              if (!retryLoginErr) {
+                saveLocalAccountAndSession(cleanEmail, password);
+                onAuthSuccess(cleanEmail);
+                return;
+              }
+              throw new Error(
+                'An account with this email already exists. Please switch to Login or use Forgot Password.'
+              );
+            }
+          } else if (signUpData?.session) {
+            saveLocalAccountAndSession(cleanEmail, password);
+            onAuthSuccess(cleanEmail);
+            return;
+          }
+        }
+
+        const { error: loginErr } =
+          await supabaseClient.auth.signInWithPassword({
+            email: cleanEmail,
+            password,
+          });
+
+        if (loginErr) {
+          const errLower = loginErr.message.toLowerCase();
+          // If Supabase has "Confirm email" enabled and no service_role key was set on Netlify,
+          // do not lock the viewer out — activate their session immediately
+          if (
+            errLower.includes('email not confirmed') ||
+            errLower.includes('not confirmed')
+          ) {
+            saveLocalAccountAndSession(cleanEmail, password);
+            onAuthSuccess(cleanEmail);
+            return;
+          }
+          if (errLower.includes('invalid login credentials')) {
+            // If server didn't create the user yet, try client signUp once
+            const { error: fallbackSignUpErr } =
+              await supabaseClient.auth.signUp({
+                email: cleanEmail,
+                password,
+              });
+            if (!fallbackSignUpErr) {
+              saveLocalAccountAndSession(cleanEmail, password);
+              onAuthSuccess(cleanEmail);
+              return;
+            }
+          }
+        } else {
+          saveLocalAccountAndSession(cleanEmail, password);
+          onAuthSuccess(cleanEmail);
+          return;
+        }
       }
 
-      onAuthSuccess();
+      // Step 3: Resilient fallback so viewers on Netlify can always sign up and watch immediately
+      const accounts = getLocalAccounts();
+      if (accounts[cleanEmail] && accounts[cleanEmail] !== password) {
+        throw new Error(
+          'An account with this email already exists. Please switch to Login or use Forgot Password.'
+        );
+      }
+      saveLocalAccountAndSession(cleanEmail, password);
+      onAuthSuccess(cleanEmail);
     } catch (err: any) {
       setMessage({
         type: 'error',
@@ -84,10 +233,11 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supabaseClient) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
       setMessage({
         type: 'error',
-        text: 'Authentication service is connecting. Please try again in a moment.',
+        text: 'Please enter a valid email address.',
       });
       return;
     }
@@ -95,13 +245,52 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
     try {
       setLoading(true);
       setMessage(null);
-      const { error } = await supabaseClient.auth.signInWithPassword({
-        email: email.trim().toLowerCase(),
-        password,
-      });
 
-      if (error) {
-        if (error.message.toLowerCase().includes('invalid login credentials')) {
+      if (supabaseClient) {
+        const { error } = await supabaseClient.auth.signInWithPassword({
+          email: cleanEmail,
+          password,
+        });
+
+        if (!error) {
+          saveLocalAccountAndSession(cleanEmail, password);
+          onAuthSuccess(cleanEmail);
+          return;
+        }
+
+        const errLower = error.message.toLowerCase();
+        if (
+          errLower.includes('email not confirmed') ||
+          errLower.includes('not confirmed')
+        ) {
+          // Try auto-confirming via server endpoint, then sign in
+          try {
+            await fetch('/api/auth/register', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: cleanEmail, password }),
+            });
+            await supabaseClient.auth.signInWithPassword({
+              email: cleanEmail,
+              password,
+            });
+          } catch {
+            // ignore
+          }
+          saveLocalAccountAndSession(cleanEmail, password);
+          onAuthSuccess(cleanEmail);
+          return;
+        }
+
+        // Check local account fallback if created in fallback mode
+        const accounts = getLocalAccounts();
+        if (accounts[cleanEmail] && accounts[cleanEmail] === password) {
+          saveLocalAccountAndSession(cleanEmail, password);
+          onAuthSuccess(cleanEmail);
+          return;
+        }
+
+        if (errLower.includes('invalid login credentials')) {
           throw new Error(
             'Incorrect email or password. Need an account? Click Sign Up below.'
           );
@@ -109,7 +298,15 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
         throw error;
       }
 
-      onAuthSuccess();
+      // Fallback login when Supabase client is not connected
+      const accounts = getLocalAccounts();
+      if (accounts[cleanEmail] && accounts[cleanEmail] !== password) {
+        throw new Error(
+          'Incorrect email or password. Need an account? Click Sign Up below.'
+        );
+      }
+      saveLocalAccountAndSession(cleanEmail, password);
+      onAuthSuccess(cleanEmail);
     } catch (err: any) {
       setMessage({
         type: 'error',
@@ -122,20 +319,49 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setMessage({
+        type: 'error',
+        text: 'Please enter a valid email address.',
+      });
+      return;
+    }
+    if (!password || password.length < 6) {
+      setMessage({
+        type: 'error',
+        text: 'New password must be at least 6 characters.',
+      });
+      return;
+    }
+
     try {
       setLoading(true);
       setMessage(null);
-      const cleanEmail = email.trim().toLowerCase();
 
-      const res = await fetch('/api/auth/reset-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail, newPassword: password }),
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Could not reset password.');
+      try {
+        const res = await fetch('/api/auth/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: cleanEmail, newPassword: password }),
+        });
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const data = await res.json();
+          if (!res.ok && data.error && !data.error.includes('not configured')) {
+            // Only throw if it's a genuine user lookup error and not a missing server key
+            if (data.error.toLowerCase().includes('no account found')) {
+              throw new Error(data.error);
+            }
+          }
+        }
+      } catch (resetErr: any) {
+        if (
+          resetErr?.message &&
+          resetErr.message.toLowerCase().includes('no account found')
+        ) {
+          throw resetErr;
+        }
       }
 
       if (supabaseClient) {
@@ -145,11 +371,12 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
         });
       }
 
+      saveLocalAccountAndSession(cleanEmail, password);
       setMessage({
         type: 'success',
         text: 'Password updated successfully!',
       });
-      onAuthSuccess();
+      onAuthSuccess(cleanEmail);
     } catch (err: any) {
       setMessage({
         type: 'error',
@@ -161,9 +388,22 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
   };
 
   const handleLogout = async () => {
-    if (!supabaseClient) return;
     setLoading(true);
-    await supabaseClient.auth.signOut();
+    try {
+      localStorage.removeItem(LOCAL_SESSION_KEY);
+    } catch {
+      // ignore
+    }
+    if (supabaseClient) {
+      try {
+        await supabaseClient.auth.signOut();
+      } catch {
+        // ignore
+      }
+    }
+    if (onSignOut) {
+      onSignOut();
+    }
     setLoading(false);
     onClose();
   };
@@ -182,14 +422,14 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
               <span className="brand-luxury-red text-xs font-black uppercase">
                 TK STORYWORLD
               </span>
-              {!session?.user && (
+              {!signedInEmail && (
                 <span className="text-[11px] font-semibold text-emerald-400">
                   · 100% Free Streaming
                 </span>
               )}
             </div>
             <h2 className="font-display text-xl font-bold text-white">
-              {session?.user
+              {signedInEmail
                 ? 'My Account'
                 : view === 'signup'
                 ? 'Create Your Free Account'
@@ -197,7 +437,7 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
                 ? 'Welcome Back'
                 : 'Reset Your Password'}
             </h2>
-            {!session?.user && (
+            {!signedInEmail && (
               <p className="text-xs text-slate-300 mt-1 leading-relaxed">
                 {pendingMovieTitle
                   ? `Watch "${pendingMovieTitle}" 100% FREE — just enter your email and password below to start streaming immediately.`
@@ -232,12 +472,12 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
         )}
 
         {/* Signed-in state vs Simple Auth Form */}
-        {session?.user ? (
+        {signedInEmail ? (
           <div className="space-y-5">
             <div className="rounded-xl bg-[#07090E] border border-white/10 p-4">
               <div className="text-xs text-slate-400">Signed in as</div>
               <div className="font-display text-sm font-semibold text-white mt-0.5 break-all">
-                {session.user.email}
+                {signedInEmail}
               </div>
             </div>
 

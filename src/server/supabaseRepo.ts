@@ -349,7 +349,20 @@ export function recalibrateMovieGenreAndSynopsis(movie: MovieItem): MovieItem {
 
   const hook =
     movie.hookTag ||
-    (primary === 'Revenge Romance'
+    (primary === 'Werewolf Romance' ||
+    titleLower.includes('wolf') ||
+    titleLower.includes('alpha') ||
+    titleLower.includes('lycan')
+      ? titleLower.includes('reject')
+        ? "🐺 Alpha's Rejected Mate"
+        : titleLower.includes('lycan')
+        ? "👑 Lycan King's Claim"
+        : titleLower.includes('luna') || titleLower.includes('moon')
+        ? '🌙 Blood Moon Luna'
+        : titleLower.includes('wolfless') || titleLower.includes('human')
+        ? '🐾 Wolfless Underdog'
+        : '🐺 Alpha Fated Mate'
+      : primary === 'Revenge Romance'
       ? '⚡ Satisfying Revenge'
       : primary === 'Contract Marriage'
       ? '💍 High-Stakes Contract'

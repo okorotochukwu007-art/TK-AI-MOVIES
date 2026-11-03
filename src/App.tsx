@@ -840,15 +840,27 @@ export default function App() {
     );
   }, [movies, sortMoviesList]);
 
+  const werewolfRomanceMovies = useMemo(() => {
+    return sortMoviesList(
+      movies.filter(
+        (m) =>
+          m.primaryCategory === 'Werewolf Romance' ||
+          m.secondaryCategories.includes('Werewolf Romance') ||
+          m.title.toLowerCase().includes('werewolf') ||
+          m.title.toLowerCase().includes('alpha') ||
+          m.title.toLowerCase().includes('lycan')
+      ),
+      'Werewolf Romance'
+    );
+  }, [movies, sortMoviesList]);
+
   const fantasyAndAnimatedMovies = useMemo(() => {
     return sortMoviesList(
       movies.filter(
         (m) =>
           m.primaryCategory === 'Fantasy Romance' ||
-          m.primaryCategory === 'Werewolf Romance' ||
           m.primaryCategory === 'AI Animated Movies' ||
           m.secondaryCategories.includes('Fantasy Romance') ||
-          m.secondaryCategories.includes('Werewolf Romance') ||
           m.secondaryCategories.includes('AI Animated Movies')
       ),
       'Fantasy Romance'
@@ -885,7 +897,19 @@ export default function App() {
   // Viral & Most Addictive Movies (Filtered by Addiction Mood & sorted by views + comments + likes)
   const viralAndAddictiveMovies = useMemo(() => {
     let list = [...movies];
-    if (addictionMood === 'revenge') {
+    if (addictionMood === 'werewolf') {
+      list = list.filter(
+        (m) =>
+          m.primaryCategory === 'Werewolf Romance' ||
+          (m.hookTag && m.hookTag.toLowerCase().includes('wolf')) ||
+          (m.hookTag && m.hookTag.toLowerCase().includes('alpha')) ||
+          (m.hookTag && m.hookTag.toLowerCase().includes('lycan')) ||
+          (m.hookTag && m.hookTag.toLowerCase().includes('luna')) ||
+          m.title.toLowerCase().includes('wolf') ||
+          m.title.toLowerCase().includes('alpha') ||
+          m.title.toLowerCase().includes('lycan')
+      );
+    } else if (addictionMood === 'revenge') {
       list = list.filter(
         (m) =>
           m.primaryCategory === 'Revenge Romance' ||
@@ -2199,6 +2223,7 @@ export default function App() {
                   <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
                     {[
                       { id: 'all', label: '🔥 All Viral Hits' },
+                      { id: 'werewolf', label: '🐺 Alpha & Werewolf' },
                       { id: 'revenge', label: '⚡ Satisfying Revenge' },
                       { id: 'contract', label: '💍 Contract Vows' },
                       { id: 'secret', label: '🎭 Secret Billionaire' },
@@ -2538,7 +2563,41 @@ export default function App() {
                 </section>
               )}
 
-              {/* 9. FANTASY, WEREWOLF & AI ANIMATED WORLDS */}
+              {/* 8B. WEREWOLF ROMANCE, ALPHA KINGS & FATED MATES */}
+              {werewolfRomanceMovies.length > 0 && (
+                <section className="space-y-4">
+                  <div className="flex items-end justify-between">
+                    <div>
+                      <div className="text-xs text-[#E11D48] font-bold">
+                        🐺 {GENRE_METADATA['Werewolf Romance'].kicker} · Trending & High Engagement
+                      </div>
+                      <h2 className="font-display text-xl font-bold text-white">
+                        Werewolf Romance, Alpha Kings & Fated Mates
+                      </h2>
+                      <p className="text-xs text-slate-400">
+                        {GENRE_METADATA['Werewolf Romance'].description}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setSelectedCategory('Werewolf Romance');
+                        setActiveView('categories');
+                      }}
+                      className="text-xs text-[#F59E0B] hover:underline inline-flex items-center gap-1 cursor-pointer shrink-0"
+                    >
+                      <span>Explore Werewolves ({werewolfRomanceMovies.length})</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                    {werewolfRomanceMovies
+                      .slice(0, 8)
+                      .map((m) => renderMovieCard(m, true))}
+                  </div>
+                </section>
+              )}
+
+              {/* 9. FANTASY & AI ANIMATED WORLDS */}
               {fantasyAndAnimatedMovies.length > 0 && (
                 <section className="space-y-4">
                   <div className="flex items-end justify-between">
@@ -2547,7 +2606,7 @@ export default function App() {
                         {GENRE_METADATA['Fantasy Romance'].kicker}
                       </div>
                       <h2 className="font-display text-xl font-bold text-white">
-                        Fantasy, Werewolf Alpha & AI Animated Cinema
+                        Fantasy Romance & Stylized AI Animation
                       </h2>
                       <p className="text-xs text-slate-400">
                         Enchanted realms, fated alpha mates, and visually poetic animated films

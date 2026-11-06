@@ -167,3 +167,34 @@ export interface SupabaseConnectionDiagnostics {
   lastSyncError: string | null;
 }
 
+export interface RegisteredUserRecord {
+  id: string;
+  email: string;
+  createdAt: string;
+  lastLoginAt: string;
+  loginCount: number;
+  signupMethod: 'email_password' | 'supabase_auth' | 'admin';
+  status: 'active' | 'unconfirmed';
+  isAdmin: boolean;
+  moviesWatchedCount?: number;
+  watchlistCount?: number;
+}
+
+export interface UserAuthEvent {
+  id: string;
+  email: string;
+  eventType: 'signup' | 'login' | 'logout';
+  timestamp: string;
+  clientInfo?: string;
+}
+
+export interface UserAuthStats {
+  totalUsers: number;
+  totalSignups: number;
+  totalLogins: number;
+  activeToday: number;
+  users: RegisteredUserRecord[];
+  recentEvents: UserAuthEvent[];
+}
+
+

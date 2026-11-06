@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Activity,
   AlertCircle,
+  Calendar,
   Check,
   CheckCircle2,
   Clock,
@@ -11,6 +13,8 @@ import {
   Film,
   FolderPlus,
   Layers,
+  LogIn,
+  Mail,
   Play,
   Plus,
   RefreshCw,
@@ -19,6 +23,11 @@ import {
   ShieldCheck,
   Sparkles,
   Trash2,
+  TrendingUp,
+  UserCheck,
+  UserPlus,
+  Users,
+  UserX,
   X,
 } from 'lucide-react';
 import {
@@ -35,7 +44,10 @@ import {
   MovieCategory,
   MovieItem,
   MovieSeries,
+  RegisteredUserRecord,
   SupabaseConnectionDiagnostics,
+  UserAuthEvent,
+  UserAuthStats,
 } from '../types/cinema.ts';
 import { CinemaPosterImage } from './CinemaPosterImage.tsx';
 
@@ -47,6 +59,7 @@ interface AdminDashboardProps {
 }
 
 type AdminTab =
+  | 'users'
   | 'discovery'
   | 'catalogue'
   | 'manual_add'
@@ -60,7 +73,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onCatalogueChanged,
   onPlayPreview,
 }) => {
-  const [activeTab, setActiveTab] = useState<AdminTab>('discovery');
+  const [activeTab, setActiveTab] = useState<AdminTab>('users');
   const [loading, setLoading] = useState(true);
   const [runningDiscovery, setRunningDiscovery] = useState(false);
   const [verifyingHealth, setVerifyingHealth] = useState(false);
@@ -114,6 +127,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [newSourceCategory, setNewSourceCategory] =
     useState<MovieCategory>('Billionaire Romance');
 
+  // User tracking and Auth activity state
+  const [userStats, setUserStats] = useState<UserAuthStats | null>(null);
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [userStatusFilter, setUserStatusFilter] = useState<
+    'all' | 'active' | 'unconfirmed'
+  >('all');
+  const [loadingUsers, setLoadingUsers] = useState(false);
+
   const adminFetch = async (url: string, init: RequestInit = {}) => {
     const headers = new Headers(init.headers || {});
     if (accessToken) {
@@ -123,6 +144,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       ...init,
       headers,
     });
+  };
+
+  const fetchUsers = async () => {
+    try {
+      setLoadingUsers(true);
+      const res = await adminFetch('/api/admin/users');
+      const data = await res.json();
+      const parsedStats = data.stats || data;
+      if (res.ok && parsedStats && typeof parsedStats.totalUsers === 'number') {
+        setUserStats(parsedStats);
+        setBannerNotice({
+          type: 'success',
+          text: `Refreshed user accounts (${parsedStats.totalUsers} registered, ${parsedStats.totalSignups} signups, ${parsedStats.totalLogins} logins).`,
+        });
+      }
+    } catch {
+      setBannerNotice({
+        type: 'error',
+        text: 'Failed to refresh user activity from backend.',
+      });
+    } finally {
+      setLoadingUsers(false);
+    }
   };
 
   const fetchOverview = async () => {
@@ -138,6 +182,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         setSettings(data.settings || null);
         setDiagnostics(data.diagnostics || null);
         setSqlSchema(data.sqlSchema || '');
+        if (data.userStats) {
+          setUserStats(data.userStats);
+        }
       } else {
         setBannerNotice({
           type: 'error',
@@ -418,7 +465,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (statusFilter === 'approved' && m.approvalStatus !== 'approved') return false;
     if (statusFilter === 'pending' && m.approvalStatus !== 'pending') return false;
     if (statusFilter === 'rejected' && m.approvalStatus !== 'rejected') return false;
-    if (statusFilter === 'unavailable' && m.playbackStatus === 'active') return false;
+    if (statusFilter === 'unavailable' && m.playbackStatus !== 'active') return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       return (
@@ -427,6 +474,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         m.primaryCategory.toLowerCase().includes(q) ||
         m.youtubeVideoId.toLowerCase().includes(q)
       );
+    }
+    return true;
+  });
+
+  const filteredUsers = (userStats?.users || []).filter((u) => {
+    if (userStatusFilter === 'active' && u.status !== 'active') return false;
+    if (userStatusFilter === 'unconfirmed' && u.status !== 'unconfirmed') return false;
+    if (userSearchQuery.trim()) {
+      const q = userSearchQuery.trim().toLowerCase();
+      return u.email.toLowerCase().includes(q);
     }
     return true;
   });
@@ -443,11 +500,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             Administrator Control Center · okorotochukwu007@gmail.com
           </div>
           <h1 className="font-display text-2xl sm:text-3xl font-bold text-white">
-            Automated Discovery & Catalogue Operations
+            Automated Discovery & Platform Operations
           </h1>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={fetchUsers}
+            disabled={loadingUsers}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-white/15 bg-[#11141D] hover:bg-white/10 text-xs font-medium text-slate-200 transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50"
+          >
+            <Users className="w-4 h-4 text-[#E11D48]" />
+            <span>
+              {loadingUsers ? 'Refreshing Users...' : 'Sync User Logins'}
+            </span>
+          </button>
+
           <button
             onClick={handleVerifyHealth}
             disabled={verifyingHealth}
@@ -498,7 +566,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* Top KPI Summary Strip (Tabular Numerals) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        {/* KPI 1: User Signups & Logins */}
+        <div
+          onClick={() => setActiveTab('users')}
+          className="rounded-xl bg-[#0E1118] border border-white/10 p-5 hover:border-[#E11D48]/50 transition-colors cursor-pointer group"
+        >
+          <div className="flex items-center justify-between">
+            <div className="text-xs text-slate-400">Total Registered Users</div>
+            <Users className="w-4 h-4 text-[#E11D48] group-hover:scale-110 transition-transform" />
+          </div>
+          <div className="font-mono text-2xl font-bold text-white tabular-nums mt-1">
+            {userStats?.totalUsers ?? 0}
+          </div>
+          <div className="text-xs text-slate-500 mt-1 font-mono tabular-nums flex items-center gap-1.5 flex-wrap">
+            <span className="text-emerald-400 font-semibold">{userStats?.totalSignups ?? 0} signups</span>
+            <span>·</span>
+            <span className="text-cyan-400 font-semibold">{userStats?.totalLogins ?? 0} logins</span>
+          </div>
+        </div>
+
+        {/* KPI 2: Active Movies */}
         <div className="rounded-xl bg-[#0E1118] border border-white/10 p-5">
           <div className="text-xs text-slate-400">Active Approved Movies</div>
           <div className="font-mono text-2xl font-bold text-white tabular-nums mt-1">
@@ -513,8 +601,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         </div>
 
+        {/* KPI 3: Last Discovery Run */}
         <div className="rounded-xl bg-[#0E1118] border border-white/10 p-5">
-          <div className="text-xs text-slate-400">Last Successful Discovery Run</div>
+          <div className="text-xs text-slate-400">Last Discovery Run</div>
           <div className="font-mono text-sm sm:text-base font-semibold text-white tabular-nums mt-2">
             {settings?.lastSuccessfulRunAt
               ? new Date(settings.lastSuccessfulRunAt).toLocaleString()
@@ -527,8 +616,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         </div>
 
+        {/* KPI 4: Next Scheduled Run */}
         <div className="rounded-xl bg-[#0E1118] border border-white/10 p-5">
-          <div className="text-xs text-slate-400">Next Scheduled Discovery Run</div>
+          <div className="text-xs text-slate-400">Next Scheduled Run</div>
           <div className="font-mono text-sm sm:text-base font-semibold text-[#F59E0B] tabular-nums mt-2">
             {settings?.nextScheduledRunAt
               ? new Date(settings.nextScheduledRunAt).toLocaleString()
@@ -539,17 +629,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         </div>
 
+        {/* KPI 5: Backend & Supabase Status */}
         <div className="rounded-xl bg-[#0E1118] border border-white/10 p-5">
           <div className="text-xs text-slate-400">Backend & API Status</div>
-          <div className="font-display text-sm sm:text-base font-semibold text-white mt-2">
+          <div className="font-display text-sm sm:text-base font-semibold text-white mt-2 truncate">
             {diagnostics?.mode === 'supabase_live'
-              ? 'Supabase Live PostgreSQL'
-              : 'Supabase Hybrid Store'}
+              ? 'Supabase Live'
+              : 'Supabase Hybrid'}
           </div>
-          <div className="text-xs text-slate-500 mt-1">
-            {diagnostics?.youTubeApiConfigured
-              ? 'YouTube API v3 + RSS Active'
-              : 'Zero-Quota Channel RSS + oEmbed'}
+          <div className="text-xs text-slate-500 mt-1 truncate">
+            {diagnostics?.hasServiceRoleKey
+              ? 'Auth Admin Sync Ready'
+              : 'Local + Auth Sync'}
           </div>
         </div>
       </div>
@@ -557,22 +648,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* Segmented Workspace Navigation */}
       <div className="flex flex-wrap items-center gap-1 p-1.5 rounded-xl bg-[#0E1118] border border-white/10">
         {[
-          { id: 'discovery', label: '01. Scheduler & Run Logs' },
+          {
+            id: 'users',
+            label: `👥 01. Users & Logins (${userStats?.totalUsers ?? 0})`,
+          },
+          { id: 'discovery', label: '02. Scheduler & Run Logs' },
           {
             id: 'catalogue',
-            label: `02. Catalogue & Queue (${movies.length})`,
+            label: `03. Catalogue & Queue (${movies.length})`,
           },
-          { id: 'manual_add', label: '03. Add YouTube Movie' },
-          { id: 'series', label: `04. Series & Episodes (${series.length})` },
-          { id: 'sources', label: `05. Discovery Sources (${sources.length})` },
-          { id: 'supabase', label: '06. Supabase & SQL Setup' },
+          { id: 'manual_add', label: '04. Add YouTube Movie' },
+          { id: 'series', label: `05. Series & Episodes (${series.length})` },
+          { id: 'sources', label: `06. Discovery Sources (${sources.length})` },
+          { id: 'supabase', label: '07. Supabase & SQL Setup' },
         ].map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as AdminTab)}
             className={`px-4 py-2 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
               activeTab === tab.id
-                ? 'bg-[#E11D48] text-white'
+                ? 'bg-[#E11D48] text-white font-semibold'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
@@ -580,6 +675,297 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </button>
         ))}
       </div>
+
+      {/* TAB 0: USERS & AUTH ACTIVITY */}
+      {activeTab === 'users' && (
+        <div className="space-y-6">
+          {/* 4 Stat Cards Strip */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="rounded-xl bg-[#0E1118] border border-white/10 p-5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-400">Total Registered Users</span>
+                <Users className="w-4 h-4 text-[#E11D48]" />
+              </div>
+              <div className="font-mono text-3xl font-bold text-white tabular-nums mt-2">
+                {userStats?.totalUsers ?? 0}
+              </div>
+              <div className="text-xs text-slate-500 mt-1 font-mono">
+                Persistent in Supabase & Backend Store
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-[#0E1118] border border-white/10 p-5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-400">Total Signups (All-Time)</span>
+                <UserPlus className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div className="font-mono text-3xl font-bold text-emerald-400 tabular-nums mt-2">
+                {userStats?.totalSignups ?? 0}
+              </div>
+              <div className="text-xs text-slate-500 mt-1 font-mono">
+                Viewer accounts created
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-[#0E1118] border border-white/10 p-5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-400">Total Viewer Logins</span>
+                <LogIn className="w-4 h-4 text-cyan-400" />
+              </div>
+              <div className="font-mono text-3xl font-bold text-cyan-400 tabular-nums mt-2">
+                {userStats?.totalLogins ?? 0}
+              </div>
+              <div className="text-xs text-slate-500 mt-1 font-mono">
+                Auth sessions initiated
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-[#0E1118] border border-white/10 p-5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-400">Active Audience Today</span>
+                <Activity className="w-4 h-4 text-amber-400" />
+              </div>
+              <div className="font-mono text-3xl font-bold text-amber-400 tabular-nums mt-2">
+                {userStats?.activeToday ?? 0}
+              </div>
+              <div className="text-xs text-slate-500 mt-1 font-mono">
+                Users active in last 24h
+              </div>
+            </div>
+          </div>
+
+          {/* Search, Filter & Refresh Bar */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-4 rounded-xl bg-[#0E1118] border border-white/10">
+            <div className="flex items-center gap-2 flex-1 max-w-md bg-[#141822] border border-white/10 rounded-lg px-3 py-2 text-xs">
+              <Search className="w-4 h-4 text-slate-400 shrink-0" />
+              <input
+                type="text"
+                value={userSearchQuery}
+                onChange={(e) => setUserSearchQuery(e.target.value)}
+                placeholder="Search registered user email..."
+                className="bg-transparent text-white placeholder-slate-500 focus:outline-none w-full"
+              />
+              {userSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setUserSearchQuery('')}
+                  className="text-slate-400 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className="flex items-center rounded-lg bg-[#141822] p-1 border border-white/10 text-xs">
+                {(['all', 'active', 'unconfirmed'] as const).map((filter) => (
+                  <button
+                    key={filter}
+                    onClick={() => setUserStatusFilter(filter)}
+                    className={`px-3 py-1.5 rounded-md font-medium capitalize transition-colors cursor-pointer ${
+                      userStatusFilter === filter
+                        ? 'bg-[#E11D48] text-white'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {filter}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={fetchUsers}
+                disabled={loadingUsers}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-xs text-white font-medium cursor-pointer transition-colors disabled:opacity-50 shrink-0"
+              >
+                <RefreshCw
+                  className={`w-3.5 h-3.5 ${loadingUsers ? 'animate-spin' : ''}`}
+                />
+                <span>{loadingUsers ? 'Refreshing...' : 'Refresh Users'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Main User Split View: Registered Accounts + Live Event Stream */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* User Directory Table (8 columns) */}
+            <div className="lg:col-span-8 rounded-xl bg-[#0E1118] border border-white/10 p-5 space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                <div>
+                  <h3 className="font-display text-base font-bold text-white flex items-center gap-2">
+                    <Users className="w-4 h-4 text-[#E11D48]" />
+                    Registered Viewer Accounts
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Accounts registered on TK STORYWORLD with login frequency & watch metrics.
+                  </p>
+                </div>
+                <div className="text-xs font-mono text-slate-400 tabular-nums">
+                  Showing {filteredUsers.length} of {userStats?.totalUsers ?? 0}
+                </div>
+              </div>
+
+              {filteredUsers.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-xs">
+                  <UserX className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                  No user accounts match your search or filter.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-white/10 text-slate-400 font-mono text-[11px]">
+                        <th className="pb-3 font-semibold">User Email</th>
+                        <th className="pb-3 font-semibold">Status</th>
+                        <th className="pb-3 font-semibold">Signed Up</th>
+                        <th className="pb-3 font-semibold">Last Login</th>
+                        <th className="pb-3 font-semibold text-center">Logins</th>
+                        <th className="pb-3 font-semibold text-center">Watched</th>
+                        <th className="pb-3 font-semibold text-center">Watchlist</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5 font-mono text-slate-300">
+                      {filteredUsers.map((u) => (
+                        <tr key={u.id} className="hover:bg-white/[0.02] transition-colors">
+                          <td className="py-3 pr-2">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-sans font-medium text-white text-xs">
+                                {u.email}
+                              </span>
+                              {u.isAdmin && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider bg-[#E11D48]/20 border border-[#E11D48]/50 text-[#E11D48] uppercase">
+                                  Admin
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-slate-500 font-sans mt-0.5">
+                              Method: {u.signupMethod === 'supabase_auth' ? 'Supabase Auth' : 'Email/Password'}
+                            </div>
+                          </td>
+                          <td className="py-3 pr-2 whitespace-nowrap">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium font-sans ${
+                                u.status === 'active'
+                                  ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20'
+                                  : 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
+                              }`}
+                            >
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  u.status === 'active'
+                                    ? 'bg-emerald-400'
+                                    : 'bg-amber-400'
+                                }`}
+                              />
+                              {u.status === 'active' ? 'Active' : 'Unconfirmed'}
+                            </span>
+                          </td>
+                          <td className="py-3 pr-2 whitespace-nowrap text-slate-400 tabular-nums">
+                            {new Date(u.createdAt).toLocaleDateString(undefined, {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            })}
+                          </td>
+                          <td className="py-3 pr-2 whitespace-nowrap text-slate-400 tabular-nums text-[11px]">
+                            {u.lastLoginAt
+                              ? new Date(u.lastLoginAt).toLocaleString(undefined, {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              : 'Never'}
+                          </td>
+                          <td className="py-3 pr-2 text-center tabular-nums">
+                            <span className="inline-block px-2 py-0.5 rounded bg-white/5 text-cyan-300 font-bold text-xs">
+                              {u.loginCount}
+                            </span>
+                          </td>
+                          <td className="py-3 pr-2 text-center tabular-nums text-slate-400">
+                            {u.moviesWatchedCount ?? 0}
+                          </td>
+                          <td className="py-3 pr-2 text-center tabular-nums text-slate-400">
+                            {u.watchlistCount ?? 0}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Live Auth Event Feed (4 columns) */}
+            <div className="lg:col-span-4 rounded-xl bg-[#0E1118] border border-white/10 p-5 space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                <div>
+                  <h3 className="font-display text-base font-bold text-white flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-cyan-400" />
+                    Live Auth Event Stream
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Real-time backend audit trail of signups and logins.
+                  </p>
+                </div>
+              </div>
+
+              {!userStats?.recentEvents || userStats.recentEvents.length === 0 ? (
+                <div className="py-12 text-center text-slate-500 text-xs">
+                  No authentication events recorded yet.
+                </div>
+              ) : (
+                <div className="space-y-2.5 max-h-[560px] overflow-y-auto pr-1">
+                  {userStats.recentEvents.slice(0, 30).map((evt) => (
+                    <div
+                      key={evt.id}
+                      className="p-3 rounded-lg bg-[#141822] border border-white/5 space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                            evt.eventType === 'signup'
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                              : evt.eventType === 'login'
+                              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                              : 'bg-slate-700 text-slate-300'
+                          }`}
+                        >
+                          {evt.eventType === 'signup' && <UserPlus className="w-3 h-3" />}
+                          {evt.eventType === 'login' && <LogIn className="w-3 h-3" />}
+                          {evt.eventType.toUpperCase()}
+                        </span>
+                        <span className="text-[10px] font-mono text-slate-500 tabular-nums">
+                          {new Date(evt.timestamp).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                          })}
+                        </span>
+                      </div>
+                      <div className="text-xs font-semibold text-white truncate">
+                        {evt.email}
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                        <span className="truncate max-w-[180px]">
+                          {evt.clientInfo || 'Web Client'}
+                        </span>
+                        <span>
+                          {new Date(evt.timestamp).toLocaleDateString([], {
+                            month: 'short',
+                            day: 'numeric',
+                          })}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* TAB 1: DISCOVERY & SCHEDULER OVERVIEW */}
       {activeTab === 'discovery' && settings && (

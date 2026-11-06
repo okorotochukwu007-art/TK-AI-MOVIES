@@ -44,6 +44,26 @@ function saveLocalAccountAndSession(email: string, password?: string) {
   }
 }
 
+export async function notifyBackendAuthEvent(
+  email: string,
+  eventType: 'signup' | 'login'
+) {
+  try {
+    const clean = email.trim().toLowerCase();
+    if (!clean || !clean.includes('@') || clean === 'guest-viewer') return;
+    await fetch(`/api/auth/record-${eventType}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: clean,
+        clientInfo: 'Web Client Auth Modal',
+      }),
+    });
+  } catch {
+    // ignore
+  }
+}
+
 export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
   supabaseClient,
   session,
@@ -120,6 +140,7 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
                 });
               if (!existingLoginErr) {
                 saveLocalAccountAndSession(cleanEmail, password);
+                void notifyBackendAuthEvent(cleanEmail, 'login');
                 onAuthSuccess(cleanEmail);
                 return;
               }
@@ -160,6 +181,7 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
                 });
               if (!retryLoginErr) {
                 saveLocalAccountAndSession(cleanEmail, password);
+                void notifyBackendAuthEvent(cleanEmail, 'login');
                 onAuthSuccess(cleanEmail);
                 return;
               }
@@ -169,6 +191,7 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
             }
           } else if (signUpData?.session) {
             saveLocalAccountAndSession(cleanEmail, password);
+            void notifyBackendAuthEvent(cleanEmail, 'signup');
             onAuthSuccess(cleanEmail);
             return;
           }
@@ -189,6 +212,7 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
             errLower.includes('not confirmed')
           ) {
             saveLocalAccountAndSession(cleanEmail, password);
+            void notifyBackendAuthEvent(cleanEmail, 'signup');
             onAuthSuccess(cleanEmail);
             return;
           }
@@ -201,12 +225,14 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
               });
             if (!fallbackSignUpErr) {
               saveLocalAccountAndSession(cleanEmail, password);
+              void notifyBackendAuthEvent(cleanEmail, 'signup');
               onAuthSuccess(cleanEmail);
               return;
             }
           }
         } else {
           saveLocalAccountAndSession(cleanEmail, password);
+          void notifyBackendAuthEvent(cleanEmail, 'signup');
           onAuthSuccess(cleanEmail);
           return;
         }
@@ -220,6 +246,7 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
         );
       }
       saveLocalAccountAndSession(cleanEmail, password);
+      void notifyBackendAuthEvent(cleanEmail, 'signup');
       onAuthSuccess(cleanEmail);
     } catch (err: any) {
       setMessage({
@@ -254,6 +281,7 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
 
         if (!error) {
           saveLocalAccountAndSession(cleanEmail, password);
+          void notifyBackendAuthEvent(cleanEmail, 'login');
           onAuthSuccess(cleanEmail);
           return;
         }
@@ -278,6 +306,7 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
             // ignore
           }
           saveLocalAccountAndSession(cleanEmail, password);
+          void notifyBackendAuthEvent(cleanEmail, 'login');
           onAuthSuccess(cleanEmail);
           return;
         }
@@ -286,6 +315,7 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
         const accounts = getLocalAccounts();
         if (accounts[cleanEmail] && accounts[cleanEmail] === password) {
           saveLocalAccountAndSession(cleanEmail, password);
+          void notifyBackendAuthEvent(cleanEmail, 'login');
           onAuthSuccess(cleanEmail);
           return;
         }
@@ -306,6 +336,7 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
         );
       }
       saveLocalAccountAndSession(cleanEmail, password);
+      void notifyBackendAuthEvent(cleanEmail, 'login');
       onAuthSuccess(cleanEmail);
     } catch (err: any) {
       setMessage({

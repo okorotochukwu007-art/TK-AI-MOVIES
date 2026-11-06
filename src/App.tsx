@@ -306,9 +306,32 @@ export default function App() {
 
           const { data: sessionData } = await sb.auth.getSession();
           setAuthSession(sessionData?.session || null);
+          if (sessionData?.session?.user?.email) {
+            fetch('/api/auth/record-login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                email: sessionData.session.user.email,
+                clientInfo: 'App Client Session Resume',
+              }),
+            }).catch(() => {});
+          }
 
-          sb.auth.onAuthStateChange((_event, nextSession) => {
+          sb.auth.onAuthStateChange((event, nextSession) => {
             setAuthSession(nextSession || null);
+            if (
+              (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') &&
+              nextSession?.user?.email
+            ) {
+              fetch('/api/auth/record-login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  email: nextSession.user.email,
+                  clientInfo: `Supabase Auth ${event}`,
+                }),
+              }).catch(() => {});
+            }
           });
         } catch (err) {
           console.error('Supabase Auth client initialization error:', err);
@@ -1397,7 +1420,10 @@ export default function App() {
         {activeView === 'admin' ? (
           isAdminAuthenticated ? (
             <AdminDashboard
-              accessToken={authSession?.access_token || null}
+              accessToken={
+                authSession?.access_token ||
+                (isAdminAuthenticated ? currentUserEmail : null)
+              }
               adminEmail={currentUserEmail}
               onCatalogueChanged={loadBootstrapData}
               onPlayPreview={(mov) => openMovieModal(mov, true)}

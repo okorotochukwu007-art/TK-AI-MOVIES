@@ -268,6 +268,34 @@ app.post('/api/auth/reset-password', async (req, res) => {
   }
 });
 
+app.post('/api/auth/record-login', async (req, res) => {
+  try {
+    const { email, clientInfo } = req.body;
+    const result = await repo.recordUserAuthEvent(
+      email || '',
+      'login',
+      clientInfo || 'Client Login'
+    );
+    res.json({ success: result.success });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to record login event' });
+  }
+});
+
+app.post('/api/auth/record-signup', async (req, res) => {
+  try {
+    const { email, clientInfo } = req.body;
+    const result = await repo.recordUserAuthEvent(
+      email || '',
+      'signup',
+      clientInfo || 'Client Signup'
+    );
+    res.json({ success: result.success });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to record signup event' });
+  }
+});
+
 app.get('/api/auth/session', async (req, res) => {
   try {
     const authHeader = req.headers.authorization || '';
@@ -325,13 +353,14 @@ app.use('/api/admin', requireAdminAuth);
 
 app.get('/api/admin/overview', async (_req, res) => {
   try {
-    const [movies, series, sources, runs, settings, diagnostics] = await Promise.all([
+    const [movies, series, sources, runs, settings, diagnostics, userStats] = await Promise.all([
       repo.getMovies(true),
       repo.getSeries(),
       repo.getSources(),
       repo.getDiscoveryRuns(),
       repo.getSettings(),
       repo.checkDiagnostics(),
+      repo.getUserAuthStats(),
     ]);
 
     let sqlSchema = '';
@@ -353,9 +382,19 @@ app.get('/api/admin/overview', async (_req, res) => {
       diagnostics,
       sqlSchema,
       isDiscoveryRunning,
+      userStats,
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to load admin overview' });
+  }
+});
+
+app.get('/api/admin/users', async (_req, res) => {
+  try {
+    const userStats = await repo.getUserAuthStats();
+    res.json({ stats: userStats, ...userStats });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to load user auth stats' });
   }
 });
 

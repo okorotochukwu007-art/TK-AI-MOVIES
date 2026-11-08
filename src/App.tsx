@@ -408,12 +408,23 @@ export default function App() {
             createdAt: row.created_at,
             updatedAt: row.updated_at,
           }));
+
+          const combined = [...mappedMovies];
+          const existingIds = new Set(combined.map((m) => m.youtubeVideoId));
+          for (const m of INITIAL_MOVIES) {
+            if (!existingIds.has(m.youtubeVideoId)) {
+              combined.push(m);
+            }
+          }
+
           setMovies(
-            mappedMovies.filter(
+            combined.filter(
               (m) =>
                 m.approvalStatus === 'approved' && m.playbackStatus === 'active'
             )
           );
+        } else {
+          setMovies([...INITIAL_MOVIES]);
         }
       }
     } catch (err) {

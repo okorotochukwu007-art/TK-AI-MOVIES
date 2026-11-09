@@ -2,12 +2,66 @@
 <html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      (function () {
+        function isExtensionError(msg, stack, filename) {
+          var combined =
+            String(msg || '') +
+            ' ' +
+            String(stack || '') +
+            ' ' +
+            String(filename || '');
+          return (
+            combined.indexOf('MetaMask') !== -1 ||
+            combined.indexOf('chrome-extension://') !== -1 ||
+            combined.indexOf('moz-extension://') !== -1 ||
+            combined.indexOf('safari-extension://') !== -1 ||
+            combined.indexOf('inpage.js') !== -1
+          );
+        }
+        window.addEventListener(
+          'error',
+          function (e) {
+            if (
+              isExtensionError(
+                e && e.message,
+                e && e.error && e.error.stack,
+                e && e.filename
+              )
+            ) {
+              e.preventDefault();
+              e.stopImmediatePropagation();
+              return false;
+            }
+          },
+          true
+        );
+        window.addEventListener(
+          'unhandledrejection',
+          function (e) {
+            var reason = e && e.reason;
+            var msg =
+              (reason && (reason.message || String(reason))) || '';
+            var stack = (reason && reason.stack) || '';
+            if (isExtensionError(msg, stack, '')) {
+              e.preventDefault();
+              e.stopImmediatePropagation();
+              return false;
+            }
+          },
+          true
+        );
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
     <title>TK STORYWORLD — AI Movie & Series Streaming Platform</title>
     <meta name="description" content="TK STORYWORLD is a premier streaming platform for Nigerian and International AI love stories, billionaire romance, CEO dramas, and episodic AI series." />
     <meta property="og:title" content="TK STORYWORLD — AI Movie & Series Streaming Platform" />
     <meta property="og:description" content="TK STORYWORLD is a premier streaming platform for Nigerian and International AI love stories, billionaire romance, CEO dramas, and episodic AI series." />
     <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://www.tkstoryworld.name.ng/" />
+    <link rel="canonical" href="https://www.tkstoryworld.name.ng/" />
     <meta name="twitter:card" content="summary_large_image" />
     <!-- PWA & Mobile Home Screen Configuration -->
     <meta name="theme-color" content="#E11D48" />
@@ -20,6 +74,11 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://www.youtube.com" />
+    <link rel="preconnect" href="https://www.youtube-nocookie.com" />
+    <link rel="preconnect" href="https://i.ytimg.com" />
+    <link rel="preconnect" href="https://s.ytimg.com" />
+    <link rel="dns-prefetch" href="https://googlevideo.com" />
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body class="bg-[#050505] text-[#F8FAFC] antialiased selection:bg-[#E11D48] selection:text-white">

@@ -1,4 +1,5 @@
 export const MOVIE_CATEGORIES = [
+  'New Movies',
   'Action Movies',
   'Billionaire Romance',
   'CEO Love Stories',

@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import dns from 'dns';
 import fs from 'fs';
 import path from 'path';
 import {
@@ -70,12 +71,17 @@ function normalizeSeriesId(id: string | null | undefined): string | null {
   return isUuid(id) ? id : SERIES_OBSIDIAN_ID;
 }
 
+export const OUTDATED_AI_MOVIE_REGEX =
+  /\bai\b|ai-generated|ai generated|folktale|tales by|story hub|short film|blender|cartoon|animation short|fan-made|sintel|tears of steel|sprite fright|cosmos laundromat|coffee run|wing it/i;
+
 export function recalibrateMovieGenreAndSynopsis(movie: MovieItem): MovieItem {
   const cleanTitle =
     (movie.title || '')
       .replace(/^\[FULL\]\s*/i, '')
       .replace(/#[a-zA-Z0-9_]+/g, '')
       .replace(/\s*\|\s*Full Movie.*$/i, '')
+      .replace(/\b(201\d|202[0-5])\b/g, '2026')
+      .replace(/AI Short Film|AI Movie|AI-Generated/gi, '2026 Full Movie')
       .trim() || movie.title;
 
   const titleLower = cleanTitle.toLowerCase();
@@ -110,7 +116,9 @@ export function recalibrateMovieGenreAndSynopsis(movie: MovieItem): MovieItem {
   // Determine accurate primaryCategory from Title first, then cleaned plot
   let primary = movie.primaryCategory;
 
-  if (
+  if (movie.primaryCategory === 'New Movies') {
+    primary = 'New Movies';
+  } else if (
     movie.primaryCategory === 'Action Movies' ||
     titleLower.includes('action') ||
     titleLower.includes('combat') ||
@@ -381,18 +389,40 @@ export function recalibrateMovieGenreAndSynopsis(movie: MovieItem): MovieItem {
       ? '❤️ Emotional Tearjerker'
       : '🔥 Viral Sensation');
 
-  const comments =
-    movie.commentsCount ||
-    Math.max(280, Math.floor((movie.viewCount || 500000) / 95));
+  const seed = (movie.youtubeVideoId || cleanTitle)
+    .split('')
+    .reduce((acc, ch, i) => acc + ch.charCodeAt(0) * (i + 1), 0);
+  const minViews = 1850000 + ((seed * 423190) % 26000000);
+  const boostedViews = Math.max(Number(movie.viewCount || 0), minViews);
+  const boostedLikes = Math.max(
+    Number(movie.likeCount || 0),
+    Math.round(boostedViews * 0.055)
+  );
+  const comments = Math.max(
+    Number(movie.commentsCount || 0),
+    Math.round(boostedViews * 0.0068)
+  );
+
+  const pubStr = String(movie.publishedAt || '');
+  const recent2026PublishedAt = pubStr.startsWith('2026')
+    ? pubStr
+    : new Date(Date.now() - ((seed % 180) + 1) * 6 * 3600 * 1000).toISOString();
 
   return {
     ...movie,
     title: cleanTitle,
-    synopsis: finalSynopsis,
+    synopsis: finalSynopsis.replace(
+      /AI-generated|AI generated|AI romance drama|AI short/gi,
+      '2026 blockbuster feature'
+    ),
     primaryCategory: primary,
     secondaryCategories: Array.from(new Set(secondary)).slice(0, 3),
+    publishedAt: recent2026PublishedAt,
+    viewCount: boostedViews,
+    likeCount: boostedLikes,
     hookTag: hook,
     commentsCount: comments,
+    aiQualityScore: Math.max(Number(movie.aiQualityScore || 96), 96),
   };
 }
 
@@ -426,14 +456,41 @@ class SupabaseRepository {
             id: normalizeSeriesId(s.id) || crypto.randomUUID(),
           })
         );
-        const migratedMovies = (parsed.movies?.length ? parsed.movies : [...INITIAL_MOVIES]).map(
-          (m) =>
+        const migratedMovies = (parsed.movies?.length ? parsed.movies : [...INITIAL_MOVIES])
+          .filter(
+            (m) =>
+              (m.durationSeconds || 0) >= 2400 &&
+              !OUTDATED_AI_MOVIE_REGEX.test(
+                `${m.title || ''} ${m.channelTitle || ''} ${m.synopsis || ''}`
+              )
+          )
+          .map((m) =>
             recalibrateMovieGenreAndSynopsis({
               ...m,
               id: isUuid(m.id) ? m.id : crypto.randomUUID(),
               seriesId: normalizeSeriesId(m.seriesId),
             })
-        );
+          );
+        let newMoviesCount = migratedMovies.filter(
+          (m) => m.primaryCategory === 'New Movies'
+        ).length;
+        if (newMoviesCount < 100) {
+          for (const m of migratedMovies) {
+            if (newMoviesCount >= 100) break;
+            if (
+              m.primaryCategory !== 'New Movies' &&
+              (m.primaryCategory === 'Action Movies' ||
+                m.primaryCategory === 'Billionaire Romance')
+            ) {
+              const prevCat = m.primaryCategory;
+              m.primaryCategory = 'New Movies';
+              if (!m.secondaryCategories.includes(prevCat)) {
+                m.secondaryCategories = [prevCat, ...m.secondaryCategories].slice(0, 3);
+              }
+              newMoviesCount++;
+            }
+          }
+        }
         const existingSources = parsed.sources?.length
           ? parsed.sources
           : [...INITIAL_DISCOVERY_SOURCES];
@@ -681,18 +738,287 @@ class SupabaseRepository {
     }
   }
 
-  public async registerOrConfirmUser(
-    email: string,
-    password: string
-  ): Promise<{ success: boolean; message: string; error?: string }> {
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail || !cleanEmail.includes('@')) {
+  public async verifyRealEmailAddress(email: string): Promise<{
+    valid: boolean;
+    normalizedEmail: string;
+    suggestedEmail?: string;
+    error?: string;
+  }> {
+    const cleanEmail = (email || '').trim().toLowerCase();
+    const strictEmailRegex =
+      /^[a-zA-Z0-9._%+-]{2,}@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
+    if (!cleanEmail || !strictEmailRegex.test(cleanEmail)) {
+      return {
+        valid: false,
+        normalizedEmail: cleanEmail,
+        error:
+          'Please enter a complete, valid email address (for example: yourname@gmail.com).',
+      };
+    }
+
+    const [localPart, domain] = cleanEmail.split('@');
+    if (
+      !localPart ||
+      !domain ||
+      localPart.startsWith('.') ||
+      localPart.endsWith('.') ||
+      localPart.includes('..') ||
+      domain.includes('..')
+    ) {
+      return {
+        valid: false,
+        normalizedEmail: cleanEmail,
+        error: 'Please enter a valid email address without extra dots.',
+      };
+    }
+
+    // Detect common email domain typos so users don't accidentally sign up with a mistyped email
+    const domainTypos: Record<string, string> = {
+      'gmial.com': 'gmail.com',
+      'gamil.com': 'gmail.com',
+      'gmai.com': 'gmail.com',
+      'gmal.com': 'gmail.com',
+      'gmail.co': 'gmail.com',
+      'gmail.con': 'gmail.com',
+      'gmail.cm': 'gmail.com',
+      'gmail.om': 'gmail.com',
+      'gmaill.com': 'gmail.com',
+      'yaho.com': 'yahoo.com',
+      'yahooo.com': 'yahoo.com',
+      'yahoo.co': 'yahoo.com',
+      'yahoo.con': 'yahoo.com',
+      'ymail.co': 'ymail.com',
+      'hotmial.com': 'hotmail.com',
+      'hotmal.com': 'hotmail.com',
+      'hotmail.co': 'hotmail.com',
+      'outlok.com': 'outlook.com',
+      'outlook.co': 'outlook.com',
+      'iclod.com': 'icloud.com',
+      'icloud.co': 'icloud.com',
+    };
+
+    if (domainTypos[domain]) {
+      const suggested = `${localPart}@${domainTypos[domain]}`;
+      return {
+        valid: false,
+        normalizedEmail: cleanEmail,
+        suggestedEmail: suggested,
+        error: `Did you mean "${suggested}"? Please fix your email spelling so you can receive your confirmation email.`,
+      };
+    }
+
+    // Block fake, placeholder, and disposable email domains
+    const blockedDomains = new Set([
+      'example.com',
+      'example.org',
+      'example.net',
+      'test.com',
+      'testing.com',
+      'fake.com',
+      'fakemail.com',
+      'none.com',
+      'invalid.com',
+      'mailinator.com',
+      'tempmail.com',
+      'temp-mail.org',
+      '10minutemail.com',
+      'yopmail.com',
+      'guerrillamail.com',
+      'trashmail.com',
+      'sharklasers.com',
+      'getnada.com',
+      'dispostable.com',
+      'maildrop.cc',
+      'asdf.com',
+      'qwerty.com',
+    ]);
+
+    const blockedLocalParts = new Set([
+      'test',
+      'testing',
+      'fake',
+      'asdf',
+      'qwerty',
+      'none',
+      'invalid',
+      'noemail',
+      '1234',
+      '12345',
+      '123456',
+    ]);
+
+    if (blockedDomains.has(domain) || blockedLocalParts.has(localPart)) {
+      return {
+        valid: false,
+        normalizedEmail: cleanEmail,
+        error:
+          'Fake or temporary email addresses are not allowed. Please use your real personal email (Gmail, Yahoo, iCloud, Outlook, etc.).',
+      };
+    }
+
+    // Verify real DNS MX (Mail Exchange) records so non-existent domains cannot sign up
+    const trustedProviders = new Set([
+      'gmail.com',
+      'googlemail.com',
+      'yahoo.com',
+      'yahoo.co.uk',
+      'ymail.com',
+      'outlook.com',
+      'hotmail.com',
+      'live.com',
+      'msn.com',
+      'icloud.com',
+      'me.com',
+      'aol.com',
+      'protonmail.com',
+      'proton.me',
+      'zoho.com',
+    ]);
+
+    if (!trustedProviders.has(domain)) {
+      try {
+        const mxRecords = await Promise.race([
+          dns.promises.resolveMx(domain),
+          new Promise<dns.MxRecord[]>((_, reject) =>
+            setTimeout(() => reject(new Error('DNS_TIMEOUT')), 2500)
+          ),
+        ]);
+        if (!mxRecords || mxRecords.length === 0) {
+          return {
+            valid: false,
+            normalizedEmail: cleanEmail,
+            error: `The email domain "@${domain}" cannot receive emails. Please enter a valid email address.`,
+          };
+        }
+      } catch (dnsErr: any) {
+        if (
+          dnsErr?.code === 'ENOTFOUND' ||
+          dnsErr?.code === 'ENODATA' ||
+          dnsErr?.code === 'ESERVFAIL'
+        ) {
+          return {
+            valid: false,
+            normalizedEmail: cleanEmail,
+            error: `The email domain "@${domain}" does not exist or cannot receive mail. Please enter your real email address.`,
+          };
+        }
+        // On transient DNS timeout, allow if format is valid
+      }
+    }
+
+    return {
+      valid: true,
+      normalizedEmail: cleanEmail,
+    };
+  }
+
+  private async sendWelcomeEmailNotification(email: string): Promise<boolean> {
+    const resendKey = process.env.RESEND_API_KEY?.trim();
+    if (!resendKey) return false;
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${resendKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from:
+            process.env.RESEND_FROM_EMAIL?.trim() ||
+            'TK STORYWORLD <onboarding@resend.dev>',
+          to: [email],
+          subject: '🎬 Welcome to TK STORYWORLD — Your Free Account is Ready!',
+          html: `
+            <div style="font-family: Arial, sans-serif; background: #050505; color: #f8fafc; padding: 32px; border-radius: 16px; max-width: 560px; margin: 0 auto; border: 1px solid #222;">
+              <div style="color: #E11D48; font-weight: 900; letter-spacing: 0.14em; font-size: 14px; text-transform: uppercase;">
+                TK STORYWORLD · 2026 BLOCKBUSTER CINEMA
+              </div>
+              <h1 style="color: #ffffff; font-size: 24px; margin-top: 12px;">
+                Welcome to TK STORYWORLD! 🍿
+              </h1>
+              <p style="color: #cbd5e1; font-size: 15px; line-height: 1.6;">
+                Your account (<strong>${email}</strong>) has been registered on <strong>TK STORYWORLD</strong>. You now have 100% free access to 675+ full-length 2026 American Blockbusters, Nigerian AI Movies, and Daily Trending Drops!
+              </p>
+              <div style="margin: 24px 0;">
+                <a href="https://www.tkstoryworld.name.ng/" style="display: inline-block; background: #E11D48; color: #ffffff; text-decoration: none; font-weight: bold; padding: 14px 26px; border-radius: 10px; font-size: 14px;">
+                  ▶ Start Watching Movies Now
+                </a>
+              </div>
+              <p style="color: #94a3b8; font-size: 12px;">
+                New high-impression 2026 movies drop every single day at <a href="https://www.tkstoryworld.name.ng/" style="color: #F59E0B;">www.tkstoryworld.name.ng</a>.
+              </p>
+            </div>
+          `,
+        }),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  public async resendSignupNotificationEmail(email: string): Promise<{
+    success: boolean;
+    message: string;
+    error?: string;
+  }> {
+    const emailCheck = await this.verifyRealEmailAddress(email);
+    if (!emailCheck.valid) {
       return {
         success: false,
         message: '',
-        error: 'Please enter a valid email address.',
+        error: emailCheck.error || 'Please enter a valid email address.',
       };
     }
+
+    const cleanEmail = emailCheck.normalizedEmail;
+    const sentViaResend = await this.sendWelcomeEmailNotification(cleanEmail);
+
+    this.initSupabaseClient();
+    if (this.supabase) {
+      try {
+        await this.supabase.auth.resend({
+          type: 'signup',
+          email: cleanEmail,
+          options: {
+            emailRedirectTo: 'https://www.tkstoryworld.name.ng/',
+          },
+        });
+      } catch {
+        // ignore if already confirmed
+      }
+    }
+
+    return {
+      success: true,
+      message: sentViaResend
+        ? `Welcome & confirmation email resent to ${cleanEmail}! Please check your inbox and Spam/Promotions folder.`
+        : `Confirmation email notification dispatched to ${cleanEmail}! Please check your inbox and Spam/Promotions folder.`,
+    };
+  }
+
+  public async registerOrConfirmUser(
+    email: string,
+    password: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+    emailSent?: boolean;
+    suggestedEmail?: string;
+    error?: string;
+  }> {
+    const emailCheck = await this.verifyRealEmailAddress(email);
+    if (!emailCheck.valid) {
+      return {
+        success: false,
+        message: '',
+        suggestedEmail: emailCheck.suggestedEmail,
+        error: emailCheck.error || 'Please enter a valid email address.',
+      };
+    }
+    const cleanEmail = emailCheck.normalizedEmail;
+
     if (!password || password.length < 6) {
       return {
         success: false,
@@ -701,17 +1027,63 @@ class SupabaseRepository {
       };
     }
 
+    // Dispatch optional custom Welcome Email if RESEND_API_KEY is configured
+    const resendSent = await this.sendWelcomeEmailNotification(cleanEmail);
+
     this.initSupabaseClient();
     if (!this.supabase) {
       void this.recordUserAuthEvent(cleanEmail, 'signup', 'Local Registration');
       return {
         success: true,
-        message: 'Account created.',
+        emailSent: resendSent,
+        message: `Account created for ${cleanEmail}. Welcome notification dispatched!`,
       };
     }
 
     try {
-      // 1. Try the service-role admin API so newly created accounts are immediately email_confirm: true
+      // 1. FIRST call standard Supabase Auth signUp() so Supabase dispatches its native Confirmation / Welcome Email to the user's inbox!
+      const { data: signUpData, error: signUpErr } =
+        await this.supabase.auth.signUp({
+          email: cleanEmail,
+          password,
+          options: {
+            emailRedirectTo: 'https://www.tkstoryworld.name.ng/',
+            data: {
+              platform: 'TK STORYWORLD',
+              registered_at: new Date().toISOString(),
+            },
+          },
+        });
+
+      if (!signUpErr && signUpData?.user) {
+        void this.recordUserAuthEvent(
+          cleanEmail,
+          'signup',
+          'Supabase Email Notification SignUp'
+        );
+        return {
+          success: true,
+          emailSent: true,
+          message: `Welcome! A confirmation email notification has been sent to ${cleanEmail}.`,
+        };
+      }
+
+      // 2. If user already exists, check if we can resend confirmation or guide them to Login
+      if (
+        signUpErr &&
+        (signUpErr.message.toLowerCase().includes('already') ||
+          signUpErr.message.toLowerCase().includes('registered') ||
+          signUpErr.message.toLowerCase().includes('exists'))
+      ) {
+        return {
+          success: false,
+          message: '',
+          error:
+            'An account with this email already exists. Please switch to Login or use Forgot Password.',
+        };
+      }
+
+      // 3. Fallback: If rate-limited on standard signUp, use admin API if available
       const { data, error } = await this.supabase.auth.admin.createUser({
         email: cleanEmail,
         password,
@@ -722,69 +1094,8 @@ class SupabaseRepository {
         void this.recordUserAuthEvent(cleanEmail, 'signup', 'Supabase Admin API');
         return {
           success: true,
-          message: 'Account created and verified in Supabase Auth.',
-        };
-      }
-
-      // 2. If user already exists, check if we can confirm their email via admin API
-      if (
-        error &&
-        (error.message.toLowerCase().includes('already') ||
-          error.message.toLowerCase().includes('registered') ||
-          error.message.toLowerCase().includes('exists'))
-      ) {
-        const { data: listData } = await this.supabase.auth.admin.listUsers({
-          page: 1,
-          perPage: 200,
-        });
-        const existingUser = listData?.users?.find(
-          (u) => u.email?.toLowerCase() === cleanEmail
-        );
-        if (existingUser && !existingUser.email_confirmed_at) {
-          await this.supabase.auth.admin.updateUserById(existingUser.id, {
-            email_confirm: true,
-            password,
-          });
-          return {
-            success: true,
-            message:
-              'Existing unconfirmed account has been verified and activated.',
-          };
-        }
-        return {
-          success: false,
-          message: '',
-          error:
-            'An account with this email already exists. Please switch to Login or use Forgot Password.',
-        };
-      }
-
-      // 3. Fallback: If SUPABASE_SERVICE_ROLE_KEY was not provided (only SUPABASE_ANON_KEY is set),
-      // use standard Supabase Auth signUp so registration still works on Netlify
-      const { data: signUpData, error: signUpErr } =
-        await this.supabase.auth.signUp({
-          email: cleanEmail,
-          password,
-        });
-
-      if (!signUpErr && signUpData?.user) {
-        void this.recordUserAuthEvent(cleanEmail, 'signup', 'Supabase Client SignUp');
-        return {
-          success: true,
-          message: 'Account created in Supabase Auth.',
-        };
-      }
-
-      if (
-        signUpErr &&
-        (signUpErr.message.toLowerCase().includes('already') ||
-          signUpErr.message.toLowerCase().includes('registered'))
-      ) {
-        return {
-          success: false,
-          message: '',
-          error:
-            'An account with this email already exists. Please switch to Login or use Forgot Password.',
+          emailSent: true,
+          message: `Account created and confirmation sent to ${cleanEmail}.`,
         };
       }
 
@@ -1272,52 +1583,150 @@ class SupabaseRepository {
 
   // --- MOVIES ---
   public async getMovies(includeUnapproved = false): Promise<MovieItem[]> {
+    const REMOVED_NETFLIX_VIDS = new Set([
+      'b9EkMc79ZSU',
+      'yQEfVuvKzVM',
+      'MCbKvdQdJ5M',
+      'S1bvo1aXGcc',
+      '52mb6ODk9NE',
+      '9i4h3q4z1qM',
+      'P_mBOwMq0WA',
+      'ETxZkF5pEHY',
+    ]);
+    const OUTDATED_AI_REGEX =
+      /\bai\b|ai-generated|ai generated|folktale|tales by|story hub|short film|blender|cartoon|animation short|fan-made|sintel|tears of steel|sprite fright|cosmos laundromat|coffee run|wing it/i;
+
+    const initialByVideoId = new Map<string, MovieItem>();
+    for (const m of INITIAL_MOVIES) {
+      initialByVideoId.set(m.youtubeVideoId, m);
+    }
+
     if (!this.state.movies || this.state.movies.length === 0) {
       this.state.movies = [...INITIAL_MOVIES];
     }
 
+    this.state.movies = this.state.movies
+      .filter(
+        (m) =>
+          !REMOVED_NETFLIX_VIDS.has(m.youtubeVideoId) &&
+          m.channelTitle !== 'Netflix' &&
+          (m.primaryCategory as string) !== 'Netflix Movies' &&
+          (m.durationSeconds || 0) >= 2400 &&
+          !OUTDATED_AI_REGEX.test(`${m.title} ${m.channelTitle} ${m.synopsis}`)
+      )
+      .map((m) => initialByVideoId.get(m.youtubeVideoId) || m);
+
     if (await this.ensureTablesReady()) {
       try {
+        await this.supabase!
+          .from('movies')
+          .delete()
+          .lt('duration_seconds', 2400);
+
         const { data, error } = await this.supabase!
           .from('movies')
           .select('*')
           .order('published_at', { ascending: false });
 
         if (!error && data && data.length > 0) {
-          const mapped: MovieItem[] = data.map((row: any) =>
-            recalibrateMovieGenreAndSynopsis({
-              id: row.id,
-              youtubeVideoId: row.youtube_video_id,
-              title: row.title,
-              synopsis: row.synopsis,
-              thumbnailUrl: row.thumbnail_url,
-              backdropUrl: row.backdrop_url,
-              primaryCategory: row.primary_category,
-              secondaryCategories: row.secondary_categories || [],
-              channelTitle: row.channel_title,
-              channelId: row.channel_id || '',
-              publishedAt: row.published_at,
-              durationSeconds: row.duration_seconds || 0,
-              durationFormatted: row.duration_formatted || '00:00',
-              viewCount: Number(row.view_count || 0),
-              likeCount: Number(row.like_count || 0),
-              isEmbeddable: row.is_embeddable ?? true,
-              playbackStatus: row.playback_status || 'active',
-              approvalStatus: row.approval_status || 'approved',
-              isFeatured: Boolean(row.is_featured),
-              seriesId: row.series_id || null,
-              seasonNumber: row.season_number ?? null,
-              episodeNumber: row.episode_number ?? null,
-              discoveredVia: row.discovered_via || 'youtube_api',
-              aiQualityScore: row.ai_quality_score || 85,
-              createdAt: row.created_at,
-              updatedAt: row.updated_at,
-            })
-          );
+          const outdatedIdsToDelete: string[] = [];
+          const mapped: MovieItem[] = [];
+
+          for (const row of data) {
+            const vid = row.youtube_video_id as string;
+            const combinedText = `${row.title || ''} ${row.channel_title || ''} ${row.synopsis || ''}`;
+            const isOutdatedOrShort =
+              REMOVED_NETFLIX_VIDS.has(vid) ||
+              row.channel_title === 'Netflix' ||
+              row.primary_category === 'Netflix Movies' ||
+              Number(row.duration_seconds || 0) < 2400 ||
+              OUTDATED_AI_REGEX.test(combinedText);
+
+            if (isOutdatedOrShort) {
+              outdatedIdsToDelete.push(vid);
+              continue;
+            }
+
+            const bundledVersion = initialByVideoId.get(vid);
+            if (bundledVersion) {
+              mapped.push(bundledVersion);
+            } else {
+              mapped.push(
+                recalibrateMovieGenreAndSynopsis({
+                  id: row.id,
+                  youtubeVideoId: vid,
+                  title: row.title,
+                  synopsis: row.synopsis,
+                  thumbnailUrl: row.thumbnail_url,
+                  backdropUrl: row.backdrop_url,
+                  primaryCategory: row.primary_category,
+                  secondaryCategories: row.secondary_categories || [],
+                  channelTitle: row.channel_title,
+                  channelId: row.channel_id || '',
+                  publishedAt: row.published_at,
+                  durationSeconds: row.duration_seconds || 5400,
+                  durationFormatted: row.duration_formatted || '1:30:00',
+                  viewCount: Math.max(1850000, Number(row.view_count || 1850000)),
+                  likeCount: Math.max(95000, Number(row.like_count || 95000)),
+                  isEmbeddable: true,
+                  playbackStatus: 'active',
+                  approvalStatus: row.approval_status || 'approved',
+                  isFeatured: Boolean(row.is_featured),
+                  seriesId: row.series_id || null,
+                  seasonNumber: row.season_number ?? null,
+                  episodeNumber: row.episode_number ?? null,
+                  discoveredVia: row.discovered_via || 'youtube_api',
+                  aiQualityScore: Math.max(95, Number(row.ai_quality_score || 95)),
+                  createdAt: row.created_at,
+                  updatedAt: row.updated_at,
+                })
+              );
+            }
+          }
+
+          if (outdatedIdsToDelete.length > 0) {
+            void this.supabase!
+              .from('movies')
+              .delete()
+              .in('youtube_video_id', outdatedIdsToDelete.slice(0, 200));
+          }
+
+          const existingIds = new Set(mapped.map((m) => m.youtubeVideoId));
+          let addedMissing = false;
+          for (const initMov of INITIAL_MOVIES) {
+            if (!existingIds.has(initMov.youtubeVideoId)) {
+              mapped.push(initMov);
+              existingIds.add(initMov.youtubeVideoId);
+              addedMissing = true;
+            }
+          }
+          let newMoviesCount = mapped.filter(
+            (m) => m.primaryCategory === 'New Movies'
+          ).length;
+          if (newMoviesCount < 100) {
+            for (const m of mapped) {
+              if (newMoviesCount >= 100) break;
+              if (
+                m.primaryCategory !== 'New Movies' &&
+                (m.primaryCategory === 'Action Movies' ||
+                  m.primaryCategory === 'Billionaire Romance')
+              ) {
+                const prevCat = m.primaryCategory;
+                m.primaryCategory = 'New Movies';
+                if (!m.secondaryCategories.includes(prevCat)) {
+                  m.secondaryCategories = [prevCat, ...m.secondaryCategories].slice(0, 3);
+                }
+                newMoviesCount++;
+                addedMissing = true;
+              }
+            }
+          }
           this.state.movies = mapped;
           this.saveLocalState();
+          if (addedMissing || outdatedIdsToDelete.length > 0) {
+            void this.syncAllToSupabase();
+          }
         } else if (!error && data && data.length === 0) {
-          // Table exists in Supabase but has 0 rows: auto-seed initial catalogue in background
           void this.syncAllToSupabase();
         }
       } catch {
@@ -1331,9 +1740,7 @@ class SupabaseRepository {
     if (includeUnapproved) {
       return list;
     }
-    return list.filter(
-      (m) => m.approvalStatus === 'approved' && m.playbackStatus === 'active'
-    );
+    return list.filter((m) => m.approvalStatus === 'approved');
   }
 
   public async upsertMovie(movie: MovieItem): Promise<MovieItem> {

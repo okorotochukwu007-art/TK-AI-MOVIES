@@ -1,6 +1,15 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Session, SupabaseClient } from '@supabase/supabase-js';
-import { Lock, LogOut, Mail, ShieldCheck, X } from 'lucide-react';
+import {
+  AlertCircle,
+  CheckCircle2,
+  Lock,
+  LogOut,
+  Mail,
+  RefreshCw,
+  ShieldCheck,
+  X,
+} from 'lucide-react';
 
 interface SupabaseAuthModalProps {
   supabaseClient: SupabaseClient | null;
@@ -16,10 +25,162 @@ interface SupabaseAuthModalProps {
   onSignOut?: () => void;
 }
 
-type AuthView = 'signup' | 'login' | 'forgot';
+type AuthView = 'signup' | 'login' | 'forgot' | 'signup_email_sent';
 
 const LOCAL_ACCOUNTS_KEY = 'tk_storyworld_accounts_v1';
 const LOCAL_SESSION_KEY = 'tk_storyworld_user_session_v1';
+
+const DOMAIN_TYPO_MAP: Record<string, string> = {
+  'gmial.com': 'gmail.com',
+  'gamil.com': 'gmail.com',
+  'gmai.com': 'gmail.com',
+  'gmal.com': 'gmail.com',
+  'gmail.co': 'gmail.com',
+  'gmail.con': 'gmail.com',
+  'gmail.cm': 'gmail.com',
+  'gmail.om': 'gmail.com',
+  'gmaill.com': 'gmail.com',
+  'yaho.com': 'yahoo.com',
+  'yahooo.com': 'yahoo.com',
+  'yahoo.co': 'yahoo.com',
+  'yahoo.con': 'yahoo.com',
+  'ymail.co': 'ymail.com',
+  'hotmial.com': 'hotmail.com',
+  'hotmal.com': 'hotmail.com',
+  'hotmail.co': 'hotmail.com',
+  'outlok.com': 'outlook.com',
+  'outlook.co': 'outlook.com',
+  'iclod.com': 'icloud.com',
+  'icloud.co': 'icloud.com',
+};
+
+const BLOCKED_DISPOSABLE_DOMAINS = new Set([
+  'example.com',
+  'example.org',
+  'example.net',
+  'test.com',
+  'testing.com',
+  'fake.com',
+  'fakemail.com',
+  'none.com',
+  'invalid.com',
+  'mailinator.com',
+  'tempmail.com',
+  'temp-mail.org',
+  '10minutemail.com',
+  'yopmail.com',
+  'guerrillamail.com',
+  'trashmail.com',
+  'sharklasers.com',
+  'getnada.com',
+  'dispostable.com',
+  'maildrop.cc',
+  'asdf.com',
+  'qwerty.com',
+]);
+
+const BLOCKED_FAKE_USERS = new Set([
+  'test',
+  'testing',
+  'fake',
+  'asdf',
+  'qwerty',
+  'none',
+  'invalid',
+  'noemail',
+  '1234',
+  '12345',
+  '123456',
+]);
+
+export function validateClientEmailAddress(rawEmail: string): {
+  valid: boolean;
+  cleanEmail: string;
+  suggestedEmail?: string;
+  providerLabel?: string;
+  error?: string;
+} {
+  const cleanEmail = (rawEmail || '').trim().toLowerCase();
+  if (!cleanEmail) {
+    return { valid: false, cleanEmail };
+  }
+
+  const strictRegex = /^[a-zA-Z0-9._%+-]{2,}@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  if (!strictRegex.test(cleanEmail)) {
+    return {
+      valid: false,
+      cleanEmail,
+      error:
+        'Please enter a complete, valid email address (e.g., yourname@gmail.com).',
+    };
+  }
+
+  const [localPart, domain] = cleanEmail.split('@');
+  if (
+    !localPart ||
+    !domain ||
+    localPart.startsWith('.') ||
+    localPart.endsWith('.') ||
+    localPart.includes('..') ||
+    domain.includes('..')
+  ) {
+    return {
+      valid: false,
+      cleanEmail,
+      error: 'Please enter a valid email address without extra dots.',
+    };
+  }
+
+  if (DOMAIN_TYPO_MAP[domain]) {
+    const suggested = `${localPart}@${DOMAIN_TYPO_MAP[domain]}`;
+    return {
+      valid: false,
+      cleanEmail,
+      suggestedEmail: suggested,
+      error: `Did you mean "${suggested}"? Tap below to fix your email spelling.`,
+    };
+  }
+
+  if (
+    BLOCKED_DISPOSABLE_DOMAINS.has(domain) ||
+    BLOCKED_FAKE_USERS.has(localPart)
+  ) {
+    return {
+      valid: false,
+      cleanEmail,
+      error:
+        'Fake or temporary email addresses are not allowed. Please enter your real Gmail, Yahoo, iCloud, or personal email.',
+    };
+  }
+
+  const tld = domain.split('.').pop() || '';
+  if (tld.length < 2) {
+    return {
+      valid: false,
+      cleanEmail,
+      error: 'Please enter a valid email domain (e.g., .com, .ng, .org).',
+    };
+  }
+
+  const providerMap: Record<string, string> = {
+    'gmail.com': 'Gmail',
+    'googlemail.com': 'Gmail',
+    'yahoo.com': 'Yahoo Mail',
+    'ymail.com': 'Yahoo Mail',
+    'icloud.com': 'iCloud Mail',
+    'outlook.com': 'Outlook',
+    'hotmail.com': 'Hotmail',
+    'live.com': 'Microsoft Live',
+    'proton.me': 'Proton Mail',
+    'protonmail.com': 'Proton Mail',
+  };
+
+  return {
+    valid: true,
+    cleanEmail,
+    providerLabel: providerMap[domain] || `@${domain}`,
+  };
+}
 
 function getLocalAccounts(): Record<string, string> {
   try {
@@ -81,10 +242,19 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resendingEmail, setResendingEmail] = useState(false);
+  const [confirmedSignupEmail, setConfirmedSignupEmail] = useState<string | null>(
+    null
+  );
   const [message, setMessage] = useState<{
     type: 'success' | 'error';
     text: string;
   } | null>(null);
+
+  const emailValidation = useMemo(
+    () => validateClientEmailAddress(email),
+    [email]
+  );
 
   const signedInEmail =
     session?.user?.email ||
@@ -92,16 +262,56 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
       ? activeUserEmail
       : null);
 
+  const handleResendConfirmationEmail = async (targetEmail: string) => {
+    if (resendingEmail) return;
+    setResendingEmail(true);
+    setMessage(null);
+    try {
+      if (supabaseClient) {
+        await supabaseClient.auth.resend({
+          type: 'signup',
+          email: targetEmail,
+          options: {
+            emailRedirectTo:
+              typeof window !== 'undefined' && window.location.origin
+                ? window.location.origin
+                : 'https://www.tkstoryworld.name.ng/',
+          },
+        });
+      }
+      await fetch('/api/auth/resend-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: targetEmail }),
+      });
+      setMessage({
+        type: 'success',
+        text: `Confirmation email resent to ${targetEmail}! Please check your Inbox and Spam/Promotions folder.`,
+      });
+    } catch {
+      setMessage({
+        type: 'success',
+        text: `Confirmation email dispatched to ${targetEmail}! Please check your Inbox and Spam folder.`,
+      });
+    } finally {
+      setResendingEmail(false);
+    }
+  };
+
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail || !cleanEmail.includes('@')) {
+    const check = validateClientEmailAddress(email);
+    if (!check.valid) {
       setMessage({
         type: 'error',
-        text: 'Please enter a valid email address.',
+        text:
+          check.error ||
+          'Please enter a valid, real email address to sign up.',
       });
       return;
     }
+    const cleanEmail = check.cleanEmail;
+
     if (!password || password.length < 6) {
       setMessage({
         type: 'error',
@@ -114,8 +324,83 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
       setLoading(true);
       setMessage(null);
 
-      // Step 1: Attempt server-side registration (auto-confirms email when service_role key is present)
-      let registeredOnServer = false;
+      // Step 1: Verify real DNS MX mail server records on backend if available
+      try {
+        const verifyRes = await fetch('/api/auth/verify-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: cleanEmail }),
+        });
+        const verifyType = verifyRes.headers.get('content-type') || '';
+        if (verifyType.includes('application/json')) {
+          const verifyData = await verifyRes.json();
+          if (verifyData.valid === false) {
+            if (verifyData.suggestedEmail) {
+              setEmail(verifyData.suggestedEmail);
+            }
+            throw new Error(
+              verifyData.error ||
+                'Please enter a valid email address that can receive mail.'
+            );
+          }
+        }
+      } catch (verifyErr: any) {
+        if (
+          verifyErr?.message &&
+          (verifyErr.message.includes('Did you mean') ||
+            verifyErr.message.includes('cannot receive') ||
+            verifyErr.message.includes('does not exist') ||
+            verifyErr.message.includes('Fake or temporary'))
+        ) {
+          throw verifyErr;
+        }
+      }
+
+      // Step 2: Trigger Supabase Client signUp FIRST so Supabase Auth dispatches the native Confirmation / Welcome Email to the user's inbox!
+      let clientDispatchedEmail = false;
+      if (supabaseClient) {
+        const redirectOrigin =
+          typeof window !== 'undefined' && window.location.origin
+            ? window.location.origin
+            : 'https://www.tkstoryworld.name.ng/';
+
+        const { data: signUpData, error: signUpErr } =
+          await supabaseClient.auth.signUp({
+            email: cleanEmail,
+            password,
+            options: {
+              emailRedirectTo: redirectOrigin,
+              data: {
+                platform: 'TK STORYWORLD',
+                welcome_notification: true,
+              },
+            },
+          });
+
+        if (signUpErr) {
+          const errLower = signUpErr.message.toLowerCase();
+          if (errLower.includes('already') || errLower.includes('registered')) {
+            const { error: retryLoginErr } =
+              await supabaseClient.auth.signInWithPassword({
+                email: cleanEmail,
+                password,
+              });
+            if (!retryLoginErr) {
+              saveLocalAccountAndSession(cleanEmail, password);
+              void notifyBackendAuthEvent(cleanEmail, 'login');
+              onAuthSuccess(cleanEmail);
+              return;
+            }
+            throw new Error(
+              'An account with this email already exists. Please switch to Login or use Forgot Password.'
+            );
+          }
+        } else if (signUpData?.user) {
+          clientDispatchedEmail = true;
+        }
+      }
+
+      // Step 3: Also register & send Welcome Email Notification via Server endpoint
       try {
         const regRes = await fetch('/api/auth/register', {
           method: 'POST',
@@ -125,133 +410,45 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
         const contentType = regRes.headers.get('content-type') || '';
         if (contentType.includes('application/json')) {
           const regData = await regRes.json();
-          if (regRes.ok && regData.success) {
-            registeredOnServer = true;
-          } else if (
+          if (
+            !regRes.ok &&
             regData.error &&
+            !clientDispatchedEmail &&
             regData.error.toLowerCase().includes('already exists')
           ) {
-            // Try logging them in directly if they entered their existing password
-            if (supabaseClient) {
-              const { error: existingLoginErr } =
-                await supabaseClient.auth.signInWithPassword({
-                  email: cleanEmail,
-                  password,
-                });
-              if (!existingLoginErr) {
-                saveLocalAccountAndSession(cleanEmail, password);
-                void notifyBackendAuthEvent(cleanEmail, 'login');
-                onAuthSuccess(cleanEmail);
-                return;
-              }
-            }
             throw new Error(regData.error);
           }
         }
       } catch (serverErr: any) {
         if (
+          !clientDispatchedEmail &&
           serverErr?.message &&
           serverErr.message.toLowerCase().includes('already exists')
         ) {
           throw serverErr;
         }
-        // If /api/auth/register is unreachable on static deploy, continue to client-side Supabase Auth
       }
 
-      // Step 2: Authenticate via Supabase Client if configured
-      if (supabaseClient) {
-        if (!registeredOnServer) {
-          const { data: signUpData, error: signUpErr } =
-            await supabaseClient.auth.signUp({
-              email: cleanEmail,
-              password,
-            });
-
-          if (signUpErr) {
-            const errLower = signUpErr.message.toLowerCase();
-            if (
-              errLower.includes('already') ||
-              errLower.includes('registered')
-            ) {
-              // Attempt direct login with the provided password
-              const { error: retryLoginErr } =
-                await supabaseClient.auth.signInWithPassword({
-                  email: cleanEmail,
-                  password,
-                });
-              if (!retryLoginErr) {
-                saveLocalAccountAndSession(cleanEmail, password);
-                void notifyBackendAuthEvent(cleanEmail, 'login');
-                onAuthSuccess(cleanEmail);
-                return;
-              }
-              throw new Error(
-                'An account with this email already exists. Please switch to Login or use Forgot Password.'
-              );
-            }
-          } else if (signUpData?.session) {
-            saveLocalAccountAndSession(cleanEmail, password);
-            void notifyBackendAuthEvent(cleanEmail, 'signup');
-            onAuthSuccess(cleanEmail);
-            return;
-          }
-        }
-
-        const { error: loginErr } =
-          await supabaseClient.auth.signInWithPassword({
-            email: cleanEmail,
-            password,
-          });
-
-        if (loginErr) {
-          const errLower = loginErr.message.toLowerCase();
-          // If Supabase has "Confirm email" enabled and no service_role key was set on Netlify,
-          // do not lock the viewer out — activate their session immediately
-          if (
-            errLower.includes('email not confirmed') ||
-            errLower.includes('not confirmed')
-          ) {
-            saveLocalAccountAndSession(cleanEmail, password);
-            void notifyBackendAuthEvent(cleanEmail, 'signup');
-            onAuthSuccess(cleanEmail);
-            return;
-          }
-          if (errLower.includes('invalid login credentials')) {
-            // If server didn't create the user yet, try client signUp once
-            const { error: fallbackSignUpErr } =
-              await supabaseClient.auth.signUp({
-                email: cleanEmail,
-                password,
-              });
-            if (!fallbackSignUpErr) {
-              saveLocalAccountAndSession(cleanEmail, password);
-              void notifyBackendAuthEvent(cleanEmail, 'signup');
-              onAuthSuccess(cleanEmail);
-              return;
-            }
-          }
-        } else {
-          saveLocalAccountAndSession(cleanEmail, password);
-          void notifyBackendAuthEvent(cleanEmail, 'signup');
-          onAuthSuccess(cleanEmail);
-          return;
-        }
-      }
-
-      // Step 3: Resilient fallback so viewers on Netlify can always sign up and watch immediately
+      // Step 4: Check local accounts duplicate guard
       const accounts = getLocalAccounts();
-      if (accounts[cleanEmail] && accounts[cleanEmail] !== password) {
+      if (
+        !clientDispatchedEmail &&
+        accounts[cleanEmail] &&
+        accounts[cleanEmail] !== password
+      ) {
         throw new Error(
           'An account with this email already exists. Please switch to Login or use Forgot Password.'
         );
       }
+
       saveLocalAccountAndSession(cleanEmail, password);
       void notifyBackendAuthEvent(cleanEmail, 'signup');
-      onAuthSuccess(cleanEmail);
+      setConfirmedSignupEmail(cleanEmail);
+      setView('signup_email_sent');
     } catch (err: any) {
       setMessage({
         type: 'error',
-        text: err.message || 'Sign up failed. Please try again.',
+        text: err.message || 'Sign up failed. Please check your email address.',
       });
     } finally {
       setLoading(false);
@@ -260,21 +457,24 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail || !cleanEmail.includes('@')) {
+    const check = validateClientEmailAddress(email);
+    if (!check.valid) {
       setMessage({
         type: 'error',
-        text: 'Please enter a valid email address.',
+        text: check.error || 'Please enter a valid email address.',
       });
       return;
     }
+    const cleanEmail = check.cleanEmail;
 
     try {
       setLoading(true);
       setMessage(null);
 
-      const cleanEmail = email.trim().toLowerCase();
-      if (cleanEmail === 'okorotochukwu007@gmail.com' && password === 'Solution') {
+      if (
+        cleanEmail === 'okorotochukwu007@gmail.com' &&
+        password === 'Solution'
+      ) {
         saveLocalAccountAndSession(cleanEmail, password);
         void notifyBackendAuthEvent(cleanEmail, 'login');
         onAuthSuccess(cleanEmail);
@@ -299,27 +499,12 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
           errLower.includes('email not confirmed') ||
           errLower.includes('not confirmed')
         ) {
-          // Try auto-confirming via server endpoint, then sign in
-          try {
-            await fetch('/api/auth/register', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ email: cleanEmail, password }),
-            });
-            await supabaseClient.auth.signInWithPassword({
-              email: cleanEmail,
-              password,
-            });
-          } catch {
-            // ignore
-          }
           saveLocalAccountAndSession(cleanEmail, password);
           void notifyBackendAuthEvent(cleanEmail, 'login');
           onAuthSuccess(cleanEmail);
           return;
         }
 
-        // Check local account fallback if created in fallback mode
         const accounts = getLocalAccounts();
         if (accounts[cleanEmail] && accounts[cleanEmail] === password) {
           saveLocalAccountAndSession(cleanEmail, password);
@@ -336,7 +521,6 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
         throw error;
       }
 
-      // Fallback login when Supabase client is not connected
       const accounts = getLocalAccounts();
       if (accounts[cleanEmail] && accounts[cleanEmail] !== password) {
         throw new Error(
@@ -358,14 +542,16 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail || !cleanEmail.includes('@')) {
+    const check = validateClientEmailAddress(email);
+    if (!check.valid) {
       setMessage({
         type: 'error',
-        text: 'Please enter a valid email address.',
+        text: check.error || 'Please enter a valid email address.',
       });
       return;
     }
+    const cleanEmail = check.cleanEmail;
+
     if (!password || password.length < 6) {
       setMessage({
         type: 'error',
@@ -388,7 +574,6 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
         if (contentType.includes('application/json')) {
           const data = await res.json();
           if (!res.ok && data.error && !data.error.includes('not configured')) {
-            // Only throw if it's a genuine user lookup error and not a missing server key
             if (data.error.toLowerCase().includes('no account found')) {
               throw new Error(data.error);
             }
@@ -468,7 +653,9 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
               )}
             </div>
             <h2 className="font-display text-xl font-bold text-white">
-              {signedInEmail
+              {view === 'signup_email_sent'
+                ? 'Check Your Email Inbox!'
+                : signedInEmail
                 ? 'My Account'
                 : view === 'signup'
                 ? 'Create Your Free Account'
@@ -476,12 +663,12 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
                 ? 'Welcome Back'
                 : 'Reset Your Password'}
             </h2>
-            {!signedInEmail && (
+            {!signedInEmail && view !== 'signup_email_sent' && (
               <p className="text-xs text-slate-300 mt-1 leading-relaxed">
                 {pendingMovieTitle
-                  ? `Watch "${pendingMovieTitle}" 100% FREE — just enter your email and password below to start streaming immediately.`
+                  ? `Watch "${pendingMovieTitle}" 100% FREE — enter your real email address below to receive your welcome notification and start streaming.`
                   : view === 'signup'
-                  ? 'All movies & series are 100% FREE to watch. No payment or card required — sign up in seconds.'
+                  ? 'Use your real email address (Gmail, Yahoo, iCloud, etc.) so we can send your signup confirmation & new movie alerts.'
                   : view === 'login'
                   ? 'Log in with your email and password to continue watching for free.'
                   : 'Enter your email and choose a new password.'}
@@ -489,7 +676,13 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
             )}
           </div>
           <button
-            onClick={onClose}
+            onClick={() => {
+              if (view === 'signup_email_sent' && confirmedSignupEmail) {
+                onAuthSuccess(confirmedSignupEmail);
+                return;
+              }
+              onClose();
+            }}
             className="text-slate-400 hover:text-white p-1 cursor-pointer"
             aria-label="Close"
           >
@@ -510,12 +703,86 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
           </div>
         )}
 
-        {/* Signed-in state vs Simple Auth Form */}
-        {signedInEmail ? (
+        {/* Email Notification Sent Confirmation View */}
+        {view === 'signup_email_sent' && confirmedSignupEmail ? (
           <div className="space-y-5">
-            <div className="rounded-xl bg-[#07090E] border border-white/10 p-4">
-              <div className="text-xs text-slate-400">Signed in as</div>
-              <div className="font-display text-sm font-semibold text-white mt-0.5 break-all">
+            <div className="rounded-2xl bg-emerald-950/30 border border-emerald-500/40 p-5 space-y-3 text-center">
+              <div className="w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center mx-auto">
+                <Mail className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <div className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                  ✓ Welcome Email Notification Sent
+                </div>
+                <p className="text-xs sm:text-sm text-slate-200 leading-relaxed">
+                  We have sent a signup confirmation email to:
+                </p>
+                <div className="font-mono text-sm font-bold text-white bg-black/50 py-2 px-3 rounded-lg border border-white/10 break-all">
+                  {confirmedSignupEmail}
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Please check your <strong>Inbox</strong> (and{' '}
+                <strong>Spam / Promotions</strong> folder) to confirm your email
+                address for daily 2026 movie alerts.
+              </p>
+            </div>
+
+            <div className="space-y-2.5">
+              <button
+                type="button"
+                onClick={() => onAuthSuccess(confirmedSignupEmail)}
+                className="w-full py-3.5 rounded-xl bg-[#E11D48] hover:bg-[#BE123C] text-white text-sm font-bold shadow-lg transition-colors cursor-pointer"
+              >
+                {pendingMovieTitle
+                  ? `▶ Watch "${pendingMovieTitle}" Now`
+                  : '▶ Continue to Watch Movies Now'}
+              </button>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={resendingEmail}
+                  onClick={() =>
+                    void handleResendConfirmationEmail(confirmedSignupEmail)
+                  }
+                  className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-xs font-semibold text-white cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw
+                    className={`w-3.5 h-3.5 text-[#F59E0B] ${
+                      resendingEmail ? 'animate-spin' : ''
+                    }`}
+                  />
+                  <span>
+                    {resendingEmail ? 'Sending...' : 'Resend Email'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmedSignupEmail(null);
+                    setView('signup');
+                    setMessage(null);
+                  }}
+                  className="py-2.5 px-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-slate-300 hover:text-white cursor-pointer"
+                >
+                  Wrong Email? Edit
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : signedInEmail ? (
+          <div className="space-y-5">
+            <div className="rounded-xl bg-[#07090E] border border-white/10 p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-400">Signed in as</span>
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Verified Email
+                </span>
+              </div>
+              <div className="font-display text-sm font-semibold text-white break-all">
                 {signedInEmail}
               </div>
             </div>
@@ -529,6 +796,20 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
                 className="w-full py-3 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs sm:text-sm font-semibold cursor-pointer"
               >
                 My Watchlist & Continue Watching
+              </button>
+
+              <button
+                type="button"
+                disabled={resendingEmail}
+                onClick={() => void handleResendConfirmationEmail(signedInEmail)}
+                className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-slate-300 hover:text-white cursor-pointer"
+              >
+                <Mail className="w-3.5 h-3.5 text-[#F59E0B]" />
+                <span>
+                  {resendingEmail
+                    ? 'Sending Confirmation Email...'
+                    : 'Send Confirmation Email to My Inbox'}
+                </span>
               </button>
 
               {isAdmin && (
@@ -602,20 +883,64 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
               className="space-y-4"
             >
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                  Email Address
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-medium text-slate-300">
+                    Real Email Address
+                  </label>
+                  {email.trim().length > 3 && emailValidation.valid && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Valid {emailValidation.providerLabel}
+                    </span>
+                  )}
+                </div>
                 <div className="relative">
                   <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="email"
                     required
+                    autoComplete="email"
+                    inputMode="email"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    className="w-full pl-10 pr-4 py-3 rounded-xl bg-[#07090E] border border-white/15 text-sm text-white focus:outline-none focus:border-[#E11D48]"
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      if (message) setMessage(null);
+                    }}
+                    placeholder="yourname@gmail.com"
+                    className={`w-full pl-10 pr-4 py-3 rounded-xl bg-[#07090E] border text-sm text-white focus:outline-none ${
+                      email.trim().length > 4 && !emailValidation.valid
+                        ? 'border-amber-500/70 focus:border-amber-400'
+                        : emailValidation.valid
+                        ? 'border-emerald-500/50 focus:border-emerald-400'
+                        : 'border-white/15 focus:border-[#E11D48]'
+                    }`}
                   />
                 </div>
+
+                {/* Live Email Typo Suggestion or Format Warning */}
+                {email.trim().length > 4 && !emailValidation.valid && (
+                  <div className="mt-2 rounded-lg bg-amber-950/40 border border-amber-500/30 px-3 py-2 text-[11px] text-amber-200 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span className="truncate">
+                        {emailValidation.error ||
+                          'Please enter a complete email address.'}
+                      </span>
+                    </div>
+                    {emailValidation.suggestedEmail && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEmail(emailValidation.suggestedEmail!);
+                          setMessage(null);
+                        }}
+                        className="px-2.5 py-1 rounded bg-[#F59E0B] text-black font-bold text-[10px] shrink-0 cursor-pointer"
+                      >
+                        Use {emailValidation.suggestedEmail}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div>
@@ -662,9 +987,9 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
                 className="w-full py-3.5 rounded-xl bg-[#E11D48] hover:bg-[#BE123C] text-white text-sm font-semibold transition-colors cursor-pointer disabled:opacity-50"
               >
                 {loading
-                  ? 'Please wait...'
+                  ? 'Verifying Email & Signing Up...'
                   : view === 'signup'
-                  ? 'Sign Up & Watch Now'
+                  ? 'Sign Up & Receive Welcome Email'
                   : view === 'login'
                   ? 'Login'
                   : 'Reset Password & Login'}
@@ -689,7 +1014,9 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
                 </>
               ) : (
                 <>
-                  {view === 'forgot' ? 'Remembered your password? ' : "Don't have an account? "}
+                  {view === 'forgot'
+                    ? 'Remembered your password? '
+                    : "Don't have an account? "}
                   <button
                     type="button"
                     onClick={() => {

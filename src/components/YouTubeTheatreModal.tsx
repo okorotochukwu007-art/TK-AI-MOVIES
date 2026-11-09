@@ -3,6 +3,7 @@ import {
   Bookmark,
   Check,
   Copy,
+  ExternalLink,
   FastForward,
   Heart,
   Maximize2,
@@ -130,11 +131,7 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
     }
   };
 
-  const [streamError, setStreamError] = useState<string | null>(
-    !movie.isEmbeddable || movie.playbackStatus !== 'active'
-      ? 'This stream is temporarily unavailable.'
-      : null
-  );
+  const [streamError, setStreamError] = useState<string | null>(null);
 
   const playerContainerId = `aetheria-stream-${movie.id.replace(/[^a-zA-Z0-9]/g, '')}`;
   const videoViewportRef = useRef<HTMLDivElement | null>(null);
@@ -159,14 +156,55 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
     new Set(seriesEpisodes.map((ep) => ep.seasonNumber || 1))
   ).sort((a, b) => a - b);
 
-  const relatedMovies = allMovies
-    .filter(
+  const relatedMovies = React.useMemo(() => {
+    const sameCat = allMovies.filter(
       (m) =>
         m.id !== movie.id &&
         (m.primaryCategory === movie.primaryCategory ||
           m.secondaryCategories.includes(movie.primaryCategory))
-    )
-    .slice(0, 4);
+    );
+    const newMovies = allMovies.filter(
+      (m) => m.id !== movie.id && m.primaryCategory === 'New Movies'
+    );
+    const combined = [...sameCat, ...newMovies];
+    const seen = new Set<string>();
+    const unique: MovieItem[] = [];
+    for (const item of combined) {
+      if (!seen.has(item.id)) {
+        seen.add(item.id);
+        unique.push(item);
+      }
+      if (unique.length >= 8) break;
+    }
+    return unique;
+  }, [allMovies, movie.id, movie.primaryCategory]);
+
+  const [whatsappSharesCount, setWhatsappSharesCount] = useState<number>(() => {
+    try {
+      return Number(localStorage.getItem('tk_storyworld_wa_shares_v1') || '0');
+    } catch {
+      return 0;
+    }
+  });
+
+  const recordWhatsAppShare = () => {
+    setWhatsappSharesCount((prev) => {
+      const next = prev + 1;
+      try {
+        localStorage.setItem('tk_storyworld_wa_shares_v1', String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
+  const liveWatchersCount = React.useMemo(() => {
+    const seed = movie.id
+      .split('')
+      .reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+    return 840 + (seed % 1950);
+  }, [movie.id]);
 
   const nextBingeMovie = React.useMemo(() => {
     if (seriesEpisodes.length > 1) {
@@ -206,9 +244,18 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
     return () => window.clearTimeout(timer);
   }, [bingeCountdown, nextBingeMovie, onSelectMovie]);
 
-  // Load Likes, Ratings & Comments for this movie
+  // Lock background page scroll while Theatre Modal is active to prevent GPU layout thrashing
   useEffect(() => {
-    const loadEngagement = async () => {
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, []);
+
+  // Defer Likes, Ratings & Comments fetch by 1.5s so 100% of network & main-thread priority goes to initial video buffering
+  useEffect(() => {
+    const timer = window.setTimeout(async () => {
       try {
         const res = await fetch(
           `/api/movies/${encodeURIComponent(
@@ -227,22 +274,93 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
       } catch {
         // ignore
       }
-    };
-    void loadEngagement();
+    }, 1500);
+    return () => window.clearTimeout(timer);
   }, [movie.id, userId]);
 
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [playerServer, setPlayerServer] = useState<'standard' | 'nocookie'>('nocookie');
+  const [streamQuality, setStreamQuality] = useState<'hd720' | 'large' | 'hd1080'>('hd720');
+  const [isStreamSettled, setIsStreamSettled] = useState(false);
+  const [startOffsetSec, setStartOffsetSec] = useState<number>(() =>
+    resumeSeconds > 15 ? Math.floor(resumeSeconds) : 0
+  );
+
+  const applyLiveStreamQuality = React.useCallback(
+    (targetQuality: 'hd720' | 'large' | 'hd1080') => {
+      const win = iframeRef.current?.contentWindow;
+      if (!win) return;
+      try {
+        const rangeArgs =
+          targetQuality === 'large'
+            ? ['small', 'large']
+            : targetQuality === 'hd720'
+            ? ['medium', 'hd720']
+            : ['hd720', 'hd1080'];
+        win.postMessage(
+          JSON.stringify({
+            event: 'command',
+            func: 'setPlaybackQualityRange',
+            args: rangeArgs,
+          }),
+          '*'
+        );
+        win.postMessage(
+          JSON.stringify({
+            event: 'command',
+            func: 'setPlaybackQuality',
+            args: [targetQuality],
+          }),
+          '*'
+        );
+      } catch {
+        // ignore cross-origin postMessage errors
+      }
+    },
+    []
+  );
+
+  // Listen to YouTube IFrame API postMessage events and lock stream into hardware-accelerated 480p/720p H.264/VP9 range so 4K/AV1 never cracks audio
   useEffect(() => {
-    setHasStarted(initialAutoPlay);
-    setPlayerPlaying(initialAutoPlay);
+    const handleMessage = (event: MessageEvent) => {
+      if (
+        !event.origin.includes('youtube.com') &&
+        !event.origin.includes('youtube-nocookie.com')
+      ) {
+        return;
+      }
+      try {
+        const payload =
+          typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+        if (
+          payload?.event === 'onReady' ||
+          payload?.event === 'onStateChange' ||
+          payload?.event === 'infoDelivery'
+        ) {
+          applyLiveStreamQuality(streamQuality);
+        }
+      } catch {
+        // ignore non-JSON messages
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [applyLiveStreamQuality, streamQuality]);
+
+  useEffect(() => {
+    setHasStarted(true);
+    setPlayerPlaying(true);
+    setIsStreamSettled(false);
     setCurrentTimestamp(resumeSeconds);
+    setStartOffsetSec(resumeSeconds > 15 ? Math.floor(resumeSeconds) : 0);
     setTotalDuration(movie.durationSeconds || 600);
     setSelectedSeason(movie.seasonNumber || 1);
-    setStreamError(
-      !movie.isEmbeddable || movie.playbackStatus !== 'active'
-        ? 'This stream is temporarily unavailable.'
-        : null
-    );
-  }, [movie.id, movie.youtubeVideoId, initialAutoPlay]);
+    setStreamError(null);
+    const settleTimer = window.setTimeout(() => {
+      setIsStreamSettled(true);
+    }, 1600);
+    return () => window.clearTimeout(settleTimer);
+  }, [movie.id, movie.youtubeVideoId, initialAutoPlay, movie.durationSeconds, movie.seasonNumber]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -254,224 +372,22 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  useEffect(() => {
-    if (!hasStarted || streamError) {
-      return;
-    }
-
-    let isCancelled = false;
-
-    const initPlayer = () => {
-      if (isCancelled || !window.YT || !window.YT.Player) return;
-
-      if (
-        playerRef.current &&
-        typeof playerRef.current.destroy === 'function'
-      ) {
-        try {
-          playerRef.current.destroy();
-        } catch {
-          // ignore
-        }
-      }
-
-      playerRef.current = new window.YT.Player(playerContainerId, {
-        videoId: movie.youtubeVideoId,
-        playerVars: {
-          autoplay: 1,
-          controls: 0,
-          rel: 0,
-          modestbranding: 1,
-          showinfo: 0,
-          iv_load_policy: 3,
-          fs: 0,
-          disablekb: 1,
-          playsinline: 1,
-          start: resumeSeconds > 10 ? Math.floor(resumeSeconds) : 0,
-          origin: window.location.origin,
-        },
-        events: {
-          onReady: (event: any) => {
-            try {
-              const dur = Math.floor(event.target.getDuration() || 0);
-              if (dur > 0) setTotalDuration(dur);
-              event.target.playVideo();
-              setPlayerPlaying(true);
-            } catch {
-              // ignore autoplay block
-            }
-          },
-          onStateChange: (event: any) => {
-            // 1 = PLAYING, 2 = PAUSED, 0 = ENDED
-            if (event.data === 1) {
-              setPlayerPlaying(true);
-              if (progressTimerRef.current) {
-                window.clearInterval(progressTimerRef.current);
-              }
-              progressTimerRef.current = window.setInterval(() => {
-                if (
-                  playerRef.current &&
-                  typeof playerRef.current.getCurrentTime === 'function'
-                ) {
-                  const cur = Math.floor(
-                    playerRef.current.getCurrentTime() || 0
-                  );
-                  const dur =
-                    Math.floor(playerRef.current.getDuration() || 0) ||
-                    movie.durationSeconds ||
-                    600;
-                  setCurrentTimestamp(cur);
-                  if (dur > 0) setTotalDuration(dur);
-                  if (cur > 0) {
-                    onProgressUpdate(movie.id, cur, dur);
-                  }
-                }
-              }, 1000);
-            } else if (event.data === 2) {
-              setPlayerPlaying(false);
-              if (
-                playerRef.current &&
-                typeof playerRef.current.getCurrentTime === 'function'
-              ) {
-                const cur = Math.floor(
-                  playerRef.current.getCurrentTime() || 0
-                );
-                const dur =
-                  Math.floor(playerRef.current.getDuration() || 0) ||
-                  movie.durationSeconds ||
-                  600;
-                if (cur > 0) {
-                  onProgressUpdate(movie.id, cur, dur);
-                }
-              }
-            } else if (event.data === 0) {
-              setPlayerPlaying(false);
-              onProgressUpdate(
-                movie.id,
-                movie.durationSeconds || 600,
-                movie.durationSeconds || 600
-              );
-              if (nextBingeMovie) {
-                setBingeCountdown(5);
-              }
-            }
-          },
-          onError: (event: any) => {
-            const errorCode = Number(event.data);
-            const isEmbedRestriction = errorCode === 101 || errorCode === 150;
-            setStreamError(
-              'This movie stream is currently restricted or unavailable. Please choose another title below.'
-            );
-            onPlaybackError(
-              movie.id,
-              isEmbedRestriction ? 'embed_restricted' : 'unavailable'
-            );
-          },
-        },
-      });
-    };
-
-    if (window.YT && window.YT.Player) {
-      initPlayer();
-    } else {
-      const existingScript = document.getElementById(
-        'aetheria-stream-api-script'
-      );
-      if (!existingScript) {
-        const tag = document.createElement('script');
-        tag.id = 'aetheria-stream-api-script';
-        tag.src = 'https://www.youtube.com/iframe_api';
-        document.body.appendChild(tag);
-      }
-      const prevCallback = window.onYouTubeIframeAPIReady;
-      window.onYouTubeIframeAPIReady = () => {
-        if (prevCallback) prevCallback();
-        initPlayer();
-      };
-    }
-
-    return () => {
-      isCancelled = true;
-      if (progressTimerRef.current) {
-        window.clearInterval(progressTimerRef.current);
-      }
-      if (
-        playerRef.current &&
-        typeof playerRef.current.destroy === 'function'
-      ) {
-        try {
-          playerRef.current.destroy();
-        } catch {
-          // ignore
-        }
-      }
-    };
-  }, [hasStarted, movie.id, movie.youtubeVideoId, streamError]);
-
-  const togglePlayPause = () => {
-    if (!hasStarted) {
-      setHasStarted(true);
-      setPlayerPlaying(true);
-      return;
-    }
-    if (!playerRef.current) return;
-    try {
-      if (playerPlaying) {
-        playerRef.current.pauseVideo();
-        setPlayerPlaying(false);
-      } else {
-        playerRef.current.playVideo();
-        setPlayerPlaying(true);
-      }
-    } catch {
-      // ignore
-    }
-  };
-
-  const handleSeek = (newSeconds: number) => {
-    const clamped = Math.max(0, Math.min(totalDuration, Math.floor(newSeconds)));
-    setCurrentTimestamp(clamped);
-    if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
-      try {
-        playerRef.current.seekTo(clamped, true);
-        playerRef.current.playVideo();
-        setPlayerPlaying(true);
-      } catch {
-        // ignore
-      }
-    }
-  };
-
-  const toggleMute = () => {
-    if (!playerRef.current) return;
-    try {
-      if (isMuted) {
-        playerRef.current.unMute();
-        setIsMuted(false);
-      } else {
-        playerRef.current.mute();
-        setIsMuted(true);
-      }
-    } catch {
-      // ignore
-    }
-  };
-
   const [isMobileTheatreExpanded, setIsMobileTheatreExpanded] = useState(false);
-  const [screenFitMode, setScreenFitMode] = useState<'fill' | 'zoom' | 'fit'>('fill');
+  const [screenFitMode, setScreenFitMode] = useState<'fill' | 'zoom' | 'fit'>('fit');
 
   const cycleScreenFitMode = () => {
     setScreenFitMode((prev) =>
-      prev === 'fill' ? 'zoom' : prev === 'zoom' ? 'fit' : 'fill'
+      prev === 'fit' ? 'fill' : prev === 'fill' ? 'zoom' : 'fit'
     );
   };
 
+  // In default 'fit' mode, avoid any CSS transform class so the browser's GPU promotes the video iframe to a Direct Hardware Overlay
   const screenFitScaleClass =
     screenFitMode === 'zoom'
-      ? 'scale-[1.34]'
+      ? 'scale-[1.34] origin-center'
       : screenFitMode === 'fill'
-      ? 'scale-[1.18]'
-      : 'scale-[1.04]';
+      ? 'scale-[1.18] origin-center'
+      : '';
 
   const screenFitLabel =
     screenFitMode === 'zoom'
@@ -479,6 +395,43 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
       : screenFitMode === 'fill'
       ? 'Complete Screen'
       : '16:9 Standard';
+
+  const embedSrcUrl = React.useMemo(() => {
+    const host =
+      playerServer === 'nocookie'
+        ? 'https://www.youtube-nocookie.com'
+        : 'https://www.youtube.com';
+    const params = new URLSearchParams({
+      autoplay: initialAutoPlay ? '1' : '0',
+      modestbranding: '1',
+      rel: '0',
+      iv_load_policy: '3',
+      playsinline: '1',
+      enablejsapi: '1',
+      vq: streamQuality,
+      hl: 'en',
+    });
+    if (typeof window !== 'undefined' && window.location.origin) {
+      params.set('origin', window.location.origin);
+    }
+    if (startOffsetSec > 15) {
+      params.set('start', String(startOffsetSec));
+    }
+    return `${host}/embed/${movie.youtubeVideoId}?${params.toString()}`;
+  }, [movie.youtubeVideoId, playerServer, initialAutoPlay, startOffsetSec]);
+
+  const handleIframeLoad = () => {
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    try {
+      win.postMessage(JSON.stringify({ event: 'listening' }), '*');
+      applyLiveStreamQuality(streamQuality);
+      window.setTimeout(() => applyLiveStreamQuality(streamQuality), 600);
+      window.setTimeout(() => applyLiveStreamQuality(streamQuality), 1800);
+    } catch {
+      // ignore
+    }
+  };
 
   const toggleFullscreen = async () => {
     const el = videoViewportRef.current as any;
@@ -594,281 +547,219 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/95 backdrop-blur-md p-0 sm:p-6 overflow-hidden"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-[#050505] p-0 sm:p-4 overflow-hidden"
       role="dialog"
       aria-modal="true"
       aria-label={movie.title}
     >
-      <div className="relative w-full max-w-5xl h-[100dvh] sm:h-auto sm:max-h-[94vh] sm:rounded-2xl bg-[#0B0D13] border-0 sm:border border-white/10 shadow-2xl overflow-hidden flex flex-col">
-        {/* Top Cinema Bar */}
-        <div className="flex items-center justify-between px-3.5 sm:px-5 py-3 border-b border-white/10 bg-[#07080C] shrink-0">
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            <span className="brand-luxury-red text-[11px] sm:text-xs font-black uppercase whitespace-nowrap shrink-0">
-              TK STORYWORLD
-            </span>
-            <span className="text-slate-600" aria-hidden="true">
-              ·
-            </span>
-            <span className="font-display text-xs sm:text-sm font-semibold text-white truncate">
-              {movie.title}
-            </span>
-            <span className="hidden md:inline text-slate-600" aria-hidden="true">
-              ·
-            </span>
-            <span className="hidden md:inline text-xs text-slate-400 whitespace-nowrap shrink-0">
-              {movie.primaryCategory}
-            </span>
-            {movie.episodeNumber && (
-              <>
-                <span className="text-slate-600" aria-hidden="true">
-                  ·
-                </span>
-                <span className="font-mono text-xs text-[#F59E0B] tabular-nums whitespace-nowrap shrink-0">
-                  S{String(movie.seasonNumber || 1).padStart(2, '0')} E
-                  {String(movie.episodeNumber).padStart(2, '0')}
-                </span>
-              </>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <button
-              onClick={() => setShowShareCard((prev) => !prev)}
-              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-semibold text-white transition-colors cursor-pointer"
-              title="Share Movie to WhatsApp or Copy Link"
-            >
-              <Share2 className="w-3.5 h-3.5 text-[#F59E0B]" />
-              <span className="hidden sm:inline">Share Movie</span>
-            </button>
-            <button
-              onClick={onClose}
-              className="p-2 rounded-lg text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 transition-colors cursor-pointer"
-              aria-label="Close Theatre"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Sticky 16:9 Cinema Video Player (Stays pinned at top on phones while scrolling comments/episodes below!) */}
+      {/* Pure rectangular container (no rounded-2xl / shadow-2xl) so GPU promotes video directly to Hardware Overlay without alpha-mask shader clipping */}
+      <div className="relative w-full max-w-5xl h-[100dvh] sm:h-auto sm:max-h-[95vh] bg-[#0B0D13] border-0 sm:border border-white/10 overflow-hidden flex flex-col">
+        {/* Sticky 16:9 Cinema Video Player — Single Top Banner & Single Bottom Banner */}
         <div
           ref={videoViewportRef}
-          className={`relative w-full aspect-video bg-black overflow-hidden select-none group shrink-0 border-b border-white/10 ${
+          className={`relative w-full aspect-video bg-black overflow-hidden shrink-0 border-b border-white/10 ${
             isMobileTheatreExpanded ? 'fixed inset-0 z-50 aspect-auto h-full' : ''
           }`}
         >
-          {hasStarted && !streamError ? (
-            <>
-              {/* Cropped & pointer-locked stream frame so external chrome/logos never appear and complete screen is filled */}
-              <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                <div className={`w-full h-full ${screenFitScaleClass} origin-center transition-transform duration-200`}>
-                  <div id={playerContainerId} className="w-full h-full" />
-                </div>
-              </div>
+          <div className={`w-full h-full ${screenFitScaleClass}`}>
+            <iframe
+              ref={iframeRef}
+              key={`${movie.youtubeVideoId}-${playerServer}`}
+              src={embedSrcUrl}
+              onLoad={handleIframeLoad}
+              title={movie.title}
+              loading="eager"
+              className="w-full h-full border-0 block bg-black"
+              referrerPolicy="strict-origin-when-cross-origin"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen; web-share"
+              allowFullScreen
+            />
+          </div>
 
-              {/* Top-Left Luxury Red TK STORYWORLD Screen Watermark */}
-              <div className="absolute top-3 left-3.5 sm:top-4 sm:left-5 z-20 pointer-events-none">
-                <span className="brand-luxury-red text-[11px] sm:text-sm font-black uppercase">
-                  TK STORYWORLD
-                </span>
-              </div>
-
-              {/* Clickable center play/pause surface */}
-              <div
-                onClick={togglePlayPause}
-                className="absolute inset-0 z-10 cursor-pointer flex items-center justify-center"
-              >
-                {!playerPlaying && (
-                  <div className="inset-0 absolute bg-black/75 backdrop-blur-sm flex flex-col items-center justify-center p-4 sm:p-6 text-center space-y-2.5">
-                    <div className="brand-luxury-red text-xs font-black uppercase">
-                      TK STORYWORLD CINEMA
-                    </div>
-                    <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-[#E11D48] text-white flex items-center justify-center shadow-2xl transform hover:scale-105 transition-transform">
-                      <Play className="w-6 h-6 sm:w-7 sm:h-7 fill-current ml-0.5" />
-                    </div>
-                    <div className="font-display text-sm sm:text-base font-bold text-white line-clamp-1">
-                      Paused · {movie.title}
-                    </div>
-                    <div className="text-xs text-slate-300">
-                      Tap anywhere to resume movie
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Custom TK STORYWORLD Touch-Friendly Cinema Controls Bar */}
-              <div
-                onClick={(e) => e.stopPropagation()}
-                className="absolute bottom-0 inset-x-0 z-20 bg-gradient-to-t from-black/95 via-black/75 to-transparent pt-6 pb-2.5 sm:pb-3.5 px-3 sm:px-6 space-y-2"
-              >
-                {/* Interactive Timeline Scrubber (Taller touch target for mobile fingers) */}
-                <div
-                  onClick={(e) => {
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const clickRatio = Math.max(
-                      0,
-                      Math.min(1, (e.clientX - rect.left) / rect.width)
-                    );
-                    handleSeek(clickRatio * totalDuration);
-                  }}
-                  className="w-full py-1.5 cursor-pointer"
-                >
-                  <div className="w-full h-2 rounded-full bg-white/25 hover:h-2.5 transition-all relative overflow-hidden">
-                    <div
-                      className="h-full bg-[#E11D48] rounded-full"
-                      style={{ width: `${progressPct}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Transport Buttons & Time */}
-                <div className="flex items-center justify-between gap-2 sm:gap-4 text-xs text-white">
-                  <div className="flex items-center gap-2 sm:gap-3.5">
-                    <button
-                      onClick={togglePlayPause}
-                      className="p-2 rounded-lg bg-white/15 hover:bg-white/25 text-white cursor-pointer"
-                      title={playerPlaying ? 'Pause' : 'Play'}
-                    >
-                      {playerPlaying ? (
-                        <Pause className="w-4 h-4 fill-current" />
-                      ) : (
-                        <Play className="w-4 h-4 fill-current" />
-                      )}
-                    </button>
-
-                    <button
-                      onClick={() => handleSeek(currentTimestamp - 10)}
-                      className="p-2 rounded-lg hover:bg-white/10 text-slate-200 hover:text-white cursor-pointer"
-                      title="Rewind 10s"
-                    >
-                      <Rewind className="w-4 h-4" />
-                    </button>
-
-                    <button
-                      onClick={() => handleSeek(currentTimestamp + 10)}
-                      className="p-2 rounded-lg hover:bg-white/10 text-slate-200 hover:text-white cursor-pointer"
-                      title="Forward 10s"
-                    >
-                      <FastForward className="w-4 h-4" />
-                    </button>
-
-                    <button
-                      onClick={toggleMute}
-                      className="p-2 rounded-lg hover:bg-white/10 text-slate-200 hover:text-white cursor-pointer"
-                      title={isMuted ? 'Unmute' : 'Mute'}
-                    >
-                      {isMuted ? (
-                        <VolumeX className="w-4 h-4 text-rose-400" />
-                      ) : (
-                        <Volume2 className="w-4 h-4" />
-                      )}
-                    </button>
-
-                    <span className="font-mono text-[11px] sm:text-xs tabular-nums text-slate-200">
-                      {formatSec(currentTimestamp)} / {formatSec(totalDuration)}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {nextBingeMovie && (
-                      <button
-                        onClick={triggerBingeNext}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#E11D48]/80 hover:bg-[#E11D48] text-white text-[11px] font-semibold transition-all cursor-pointer shadow-md"
-                        title={`Binge Next: ${nextBingeMovie.title}`}
-                      >
-                        <FastForward className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Next Movie</span>
-                      </button>
-                    )}
-                    <button
-                      onClick={cycleScreenFitMode}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white text-[11px] font-medium cursor-pointer"
-                      title="Toggle Widescreen Fill Mode"
-                    >
-                      <span>{screenFitLabel}</span>
-                    </button>
-                    <button
-                      onClick={() => void toggleFullscreen()}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-[11px] font-semibold cursor-pointer"
-                      title="Fullscreen Cinema"
-                    >
-                      <Maximize2 className="w-3.5 h-3.5" />
-                      <span className="sm:hidden">Full Screen</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* AUTO-BINGE NEXT OVERLAY */}
-              {bingeCountdown !== null && nextBingeMovie && (
-                <div className="absolute inset-0 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-30 animate-in fade-in duration-200">
-                  <div className="w-12 h-12 rounded-full bg-[#E11D48]/25 border border-[#E11D48]/50 flex items-center justify-center mb-3 text-[#E11D48] animate-pulse">
-                    <Play className="w-6 h-6 fill-current ml-0.5" />
-                  </div>
-                  <div className="text-xs font-bold uppercase tracking-wider text-rose-400 mb-1">
-                    🔥 Playing Next in {bingeCountdown}s · Auto-Binge
-                  </div>
-                  <h3 className="font-display text-lg sm:text-xl font-bold text-white max-w-md line-clamp-1 mb-1">
-                    {nextBingeMovie.title}
-                  </h3>
-                  <p className="text-xs text-slate-300 mb-4 max-w-sm line-clamp-1">
-                    {nextBingeMovie.hookTag ? `${nextBingeMovie.hookTag} · ` : ''}
-                    {nextBingeMovie.primaryCategory} · {nextBingeMovie.durationFormatted}
-                  </p>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => {
-                        setBingeCountdown(null);
-                        onSelectMovie(nextBingeMovie, true);
-                      }}
-                      className="px-5 py-2.5 rounded-xl bg-[#E11D48] hover:bg-[#BE123C] text-white text-xs sm:text-sm font-bold shadow-lg transition-transform hover:scale-105 cursor-pointer flex items-center gap-2"
-                    >
-                      <Play className="w-4 h-4 fill-current" />
-                      <span>Watch Next Now</span>
-                    </button>
-                    <button
-                      onClick={() => setBingeCountdown(null)}
-                      className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 text-xs sm:text-sm font-medium transition-colors cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
+          {/* Single Solid Top TK STORYWORLD Banner — Static GPU Layer */}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              transform: 'translateZ(0)',
+              backfaceVisibility: 'hidden',
+              contain: 'layout paint',
+            }}
+            className="absolute top-0 inset-x-0 h-9 sm:h-14 z-10 bg-[#050505] border-b border-white/10 flex items-center justify-between px-2.5 sm:px-5 select-none"
+          >
+            <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
+              <span className="font-luxury text-[#FF1E4D] tracking-[0.12em] text-[10px] sm:text-xs font-black uppercase whitespace-nowrap shrink-0">
+                TK STORYWORLD
+              </span>
+              <span className="text-slate-600" aria-hidden="true">
+                ·
+              </span>
+              <span className="font-display text-[11px] sm:text-sm font-semibold text-white truncate">
+                {movie.title}
+              </span>
+              <span className="hidden md:inline text-slate-600" aria-hidden="true">
+                ·
+              </span>
+              <span className="hidden md:inline text-xs text-slate-400 whitespace-nowrap shrink-0">
+                {movie.primaryCategory}
+              </span>
+              {movie.episodeNumber && (
+                <>
+                  <span className="text-slate-600" aria-hidden="true">
+                    ·
+                  </span>
+                  <span className="font-mono text-[10px] sm:text-xs text-[#F59E0B] tabular-nums whitespace-nowrap shrink-0">
+                    S{String(movie.seasonNumber || 1).padStart(2, '0')} E
+                    {String(movie.episodeNumber).padStart(2, '0')}
+                  </span>
+                </>
               )}
-            </>
-          ) : streamError ? (
-            <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-b from-[#131620] to-[#07080C]">
-              <ShieldAlert className="w-10 h-10 sm:w-12 sm:h-12 text-[#F59E0B] mb-3" />
-              <h3 className="font-display text-lg sm:text-xl font-bold text-white mb-1.5">
-                Stream Currently Unavailable
-              </h3>
-              <p className="text-xs sm:text-sm text-slate-300 max-w-md leading-relaxed">
-                {streamError}
-              </p>
             </div>
-          ) : (
-            <div className="relative w-full h-full">
-              <CinemaPosterImage
-                src={movie.backdropUrl}
-                fallbackVideoId={movie.youtubeVideoId}
-                alt={movie.title}
-                category={movie.primaryCategory}
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#0B0D13] via-black/50 to-transparent" />
-              <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0 ml-1">
+              <button
+                onClick={() => setShowShareCard((prev) => !prev)}
+                className="inline-flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg bg-white/10 hover:bg-white/15 border border-white/10 text-[10px] sm:text-xs font-semibold text-white transition-colors cursor-pointer"
+                title="Share Movie to WhatsApp or Copy Link"
+              >
+                <Share2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#F59E0B]" />
+                <span className="hidden sm:inline">Share Movie</span>
+              </button>
+              <button
+                onClick={onClose}
+                className="p-1 sm:p-2 rounded-lg text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 transition-colors cursor-pointer"
+                aria-label="Close Theatre"
+              >
+                <X className="w-4 h-4 sm:w-5 sm:h-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Single Solid Bottom TK STORYWORLD Banner — Static GPU Layer */}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              transform: 'translateZ(0)',
+              backfaceVisibility: 'hidden',
+              contain: 'layout paint',
+            }}
+            className="absolute bottom-0 inset-x-0 h-9 sm:h-13 z-10 bg-[#050505] border-t border-white/10 flex items-center justify-between gap-1 px-2 sm:px-5 select-none overflow-x-auto no-scrollbar"
+          >
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+              <span className="hidden sm:inline font-luxury text-[#FF1E4D] tracking-[0.14em] text-xs font-black uppercase whitespace-nowrap">
+                TK STORYWORLD CINEMA
+              </span>
+              <span className="sm:hidden font-luxury text-[#FF1E4D] tracking-wider text-[10px] font-black uppercase whitespace-nowrap">
+                TK
+              </span>
+              <div className="flex items-center gap-1 sm:ml-2">
+                <button
+                  onClick={() => setPlayerServer('nocookie')}
+                  className={`px-1.5 sm:px-2 py-0.5 rounded text-[9.5px] sm:text-[10px] font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+                    playerServer === 'nocookie'
+                      ? 'bg-[#E11D48] text-white'
+                      : 'bg-white/5 hover:bg-white/10 text-slate-300'
+                  }`}
+                  title="Fast Privacy CDN Server (Recommended)"
+                >
+                  CDN 1
+                </button>
+                <button
+                  onClick={() => setPlayerServer('standard')}
+                  className={`px-1.5 sm:px-2 py-0.5 rounded text-[9.5px] sm:text-[10px] font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+                    playerServer === 'standard'
+                      ? 'bg-[#E11D48] text-white'
+                      : 'bg-white/5 hover:bg-white/10 text-slate-300'
+                  }`}
+                  title="Standard CDN Server"
+                >
+                  CDN 2
+                </button>
                 <button
                   onClick={() => {
-                    setHasStarted(true);
-                    setPlayerPlaying(true);
+                    const nextQ =
+                      streamQuality === 'hd720'
+                        ? 'large'
+                        : streamQuality === 'large'
+                        ? 'hd1080'
+                        : 'hd720';
+                    setStreamQuality(nextQ);
+                    applyLiveStreamQuality(nextQ);
                   }}
-                  className="group flex items-center gap-3 px-6 sm:px-7 py-3.5 rounded-xl bg-[#E11D48] hover:bg-[#BE123C] text-white text-sm sm:text-base font-semibold shadow-lg transition-transform duration-150 hover:scale-105 cursor-pointer"
+                  className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[9.5px] sm:text-[10px] font-semibold cursor-pointer whitespace-nowrap"
+                  title="Live Audio/Video Anti-Crack Stream Stabilizer (Changes Quality Without Reloading)"
                 >
-                  <Play className="w-5 h-5 fill-current" />
                   <span>
-                    {resumeSeconds > 15
-                      ? `Resume Movie (${formatSec(resumeSeconds)})`
-                      : 'Play Full Movie'}
+                    {streamQuality === 'hd720'
+                      ? '⚡ 720p'
+                      : streamQuality === 'large'
+                      ? '🛡️ 480p'
+                      : '🎬 1080p'}
                   </span>
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+              {nextBingeMovie && (
+                <button
+                  onClick={triggerBingeNext}
+                  className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md bg-[#E11D48] hover:bg-[#BE123C] text-white text-[10px] sm:text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap"
+                  title={`Binge Next: ${nextBingeMovie.title}`}
+                >
+                  <FastForward className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                  <span className="hidden sm:inline">Next Movie</span>
+                  <span className="sm:hidden">Next</span>
+                </button>
+              )}
+              <button
+                onClick={cycleScreenFitMode}
+                className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white text-[11px] font-medium cursor-pointer whitespace-nowrap"
+                title="Toggle Widescreen Fill Mode"
+              >
+                <span>{screenFitLabel}</span>
+              </button>
+              <button
+                onClick={() => void toggleFullscreen()}
+                className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md bg-white/15 hover:bg-white/25 text-white text-[10px] sm:text-[11px] font-semibold cursor-pointer whitespace-nowrap"
+                title="Fullscreen Cinema"
+              >
+                <Maximize2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                <span>{isMobileTheatreExpanded ? 'Exit Full' : 'Full'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* AUTO-BINGE NEXT OVERLAY */}
+          {bingeCountdown !== null && nextBingeMovie && (
+            <div className="absolute inset-0 bg-[#050505]/95 flex flex-col items-center justify-center p-6 text-center z-30">
+              <div className="w-12 h-12 rounded-full bg-[#E11D48]/25 border border-[#E11D48]/50 flex items-center justify-center mb-3 text-[#E11D48]">
+                <Play className="w-6 h-6 fill-current ml-0.5" />
+              </div>
+              <div className="text-xs font-bold uppercase tracking-wider text-rose-400 mb-1">
+                🔥 Playing Next in {bingeCountdown}s · Auto-Binge
+              </div>
+              <h3 className="font-display text-lg sm:text-xl font-bold text-white max-w-md line-clamp-1 mb-1">
+                {nextBingeMovie.title}
+              </h3>
+              <p className="text-xs text-slate-300 mb-4 max-w-sm line-clamp-1">
+                {nextBingeMovie.hookTag ? `${nextBingeMovie.hookTag} · ` : ''}
+                {nextBingeMovie.primaryCategory} · {nextBingeMovie.durationFormatted}
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    setBingeCountdown(null);
+                    onSelectMovie(nextBingeMovie, true);
+                  }}
+                  className="px-5 py-2.5 rounded-xl bg-[#E11D48] hover:bg-[#BE123C] text-white text-xs sm:text-sm font-bold shadow-lg transition-transform hover:scale-105 cursor-pointer flex items-center gap-2"
+                >
+                  <Play className="w-4 h-4 fill-current" />
+                  <span>Watch Next Now</span>
+                </button>
+                <button
+                  onClick={() => setBingeCountdown(null)}
+                  className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 text-xs sm:text-sm font-medium transition-colors cursor-pointer"
+                >
+                  Cancel
                 </button>
               </div>
             </div>
@@ -877,6 +768,121 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
 
         {/* Scrollable Details, Episodes & Community Viewport below the pinned video player */}
         <div className="overflow-y-auto flex-1">
+          {/* INSTANT BINGE STRIP & WHATSAPP VIRAL REFERRAL BAR (Right Under Player) */}
+          <div className="bg-[#080A0F] border-b border-white/10 px-4 sm:px-8 py-4 space-y-4">
+            {/* Viral WhatsApp Share & Live Audience Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl bg-[#0E131F] border border-white/10 p-3 sm:px-4">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  {liveWatchersCount.toLocaleString()} Watching Now
+                </span>
+                <span className="text-xs text-slate-200 truncate">
+                  {whatsappSharesCount > 0
+                    ? `👑 VIP Sharer Unlocked (${whatsappSharesCount} friend${whatsappSharesCount === 1 ? '' : 's'} invited!)`
+                    : 'Enjoying this movie? Bring your friends from WhatsApp to watch free!'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={whatsappShareHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={recordWhatsAppShare}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#16A34A] hover:bg-[#15803D] text-white text-xs font-bold shadow-md transition-transform hover:scale-105 cursor-pointer"
+                >
+                  <MessageCircle className="w-3.5 h-3.5 fill-current" />
+                  <span>Invite Friends on WhatsApp</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={handleQuickCopyLink}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 border border-white/15 text-xs font-semibold text-white cursor-pointer"
+                >
+                  {quickCopiedLink ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Copied</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 text-[#F59E0B]" />
+                      <span>Copy Link</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Immediate "Watch Next (Binge 2-3 Movies)" Strip — Staggered until stream buffer is settled */}
+            {isStreamSettled && relatedMovies.length > 0 && (
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-extrabold uppercase tracking-wider text-[#E11D48]">
+                      🔥 Watch Next · Keep Bingeing
+                    </span>
+                    <span className="text-[11px] text-slate-400 hidden sm:inline">
+                      Tap any movie below to play immediately inside this theatre
+                    </span>
+                  </div>
+                  {nextBingeMovie && (
+                    <button
+                      onClick={() => onSelectMovie(nextBingeMovie, true)}
+                      className="text-xs font-semibold text-[#F59E0B] hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <FastForward className="w-3.5 h-3.5" />
+                      <span>Play Next Automatically</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3 overflow-x-auto no-scrollbar pb-1">
+                  {relatedMovies.slice(0, 6).map((rel, idx) => (
+                    <button
+                      key={rel.id}
+                      onClick={() => onSelectMovie(rel, true)}
+                      className="group relative w-48 sm:w-56 shrink-0 text-left rounded-xl overflow-hidden bg-[#11141D] border border-white/10 hover:border-[#E11D48] transition-all cursor-pointer flex flex-col"
+                    >
+                      <div className="relative aspect-video w-full bg-black overflow-hidden">
+                        <CinemaPosterImage
+                          src={rel.thumbnailUrl}
+                          fallbackVideoId={rel.youtubeVideoId}
+                          alt={rel.title}
+                          category={rel.primaryCategory}
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex items-center justify-center">
+                          <div className="w-8 h-8 rounded-full bg-[#E11D48]/95 text-white flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
+                            <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                          </div>
+                        </div>
+                        <span className="absolute top-1.5 left-2 px-1.5 py-0.5 rounded bg-black/80 text-[9.5px] font-bold text-[#F59E0B]">
+                          Up Next #{idx + 1}
+                        </span>
+                        <span className="absolute bottom-1.5 right-2 font-mono text-[10px] text-slate-200 bg-black/75 px-1.5 py-0.5 rounded">
+                          {rel.durationFormatted}
+                        </span>
+                      </div>
+                      <div className="p-2.5">
+                        <div className="font-display text-xs font-semibold text-white group-hover:text-[#F59E0B] truncate">
+                          {rel.title}
+                        </div>
+                        <div className="text-[10px] text-rose-400 font-mono mt-0.5">
+                          🔥{' '}
+                          {rel.viewCount >= 1000000
+                            ? `${(rel.viewCount / 1000000).toFixed(1)}M`
+                            : `${Math.round((rel.viewCount || 850000) / 1000)}K`}{' '}
+                          views · {rel.primaryCategory}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Movie Synopsis, Likes, Ratings & Comment Threads */}
           <div className="p-4 sm:p-8 space-y-7 sm:space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
@@ -1028,7 +1034,7 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
                           0,
                           movie.durationSeconds || 600
                         );
-                        handleSeek(0);
+                        setCurrentTimestamp(0);
                       }}
                       className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                     >

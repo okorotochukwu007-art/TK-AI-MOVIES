@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Film } from 'lucide-react';
 
 interface CinemaPosterImageProps {
@@ -20,6 +20,12 @@ export const CinemaPosterImage: React.FC<CinemaPosterImageProps> = ({
   const [triedHqFallback, setTriedHqFallback] = useState(false);
   const [hasFailed, setHasFailed] = useState(false);
 
+  useEffect(() => {
+    setCurrentSrc(src);
+    setTriedHqFallback(false);
+    setHasFailed(false);
+  }, [src, fallbackVideoId]);
+
   const handleError = () => {
     if (!triedHqFallback && fallbackVideoId) {
       setTriedHqFallback(true);
@@ -27,6 +33,14 @@ export const CinemaPosterImage: React.FC<CinemaPosterImageProps> = ({
       return;
     }
     setHasFailed(true);
+  };
+
+  const handleLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    // Detect YouTube's 120x90 grey 3-dots placeholder when maxresdefault is missing
+    if (img.naturalWidth > 0 && img.naturalWidth <= 120 && img.naturalHeight <= 90) {
+      handleError();
+    }
   };
 
   if (hasFailed || !currentSrc) {
@@ -50,9 +64,12 @@ export const CinemaPosterImage: React.FC<CinemaPosterImageProps> = ({
       src={currentSrc}
       alt={alt}
       referrerPolicy="no-referrer"
+      onLoad={handleLoad}
       onError={handleError}
       className={className}
       loading="lazy"
+      decoding="async"
+      fetchPriority="low"
     />
   );
 };

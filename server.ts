@@ -77,9 +77,6 @@ app.get('/api/bootstrap', async (req, res) => {
   try {
     const userId = (req.query.userId as string) || 'default-viewer';
 
-    // Non-blocking stale-if-due check for scheduled updates
-    void triggerScheduledDiscoveryIfNeeded('scheduled');
-
     const [
       movies,
       series,
@@ -97,6 +94,9 @@ app.get('/api/bootstrap', async (req, res) => {
       repo.checkDiagnostics(),
       repo.getAllEngagementSummaries(userId),
     ]);
+
+    // Trigger non-blocking background discovery check if the 6-hour daily schedule is due
+    void triggerScheduledDiscoveryIfNeeded('scheduled');
 
     res.json({
       movies,
@@ -117,6 +117,36 @@ app.get('/api/bootstrap', async (req, res) => {
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to load streaming catalogue' });
+  }
+});
+
+app.post('/api/daily-sync', async (_req, res) => {
+  try {
+    if (!isDiscoveryRunning) {
+      isDiscoveryRunning = true;
+      try {
+        const runLog = await runDiscoveryPipeline('scheduled');
+        const movies = await repo.getMovies(false);
+        return res.json({
+          synced: true,
+          moviesAdded: runLog.moviesAdded,
+          totalMovies: movies.length,
+          movies,
+        });
+      } finally {
+        isDiscoveryRunning = false;
+      }
+    }
+    const movies = await repo.getMovies(false);
+    res.json({
+      synced: false,
+      moviesAdded: 0,
+      totalMovies: movies.length,
+      movies,
+    });
+  } catch (error: any) {
+    isDiscoveryRunning = false;
+    res.status(500).json({ error: error.message || 'Daily sync failed' });
   }
 });
 
@@ -238,14 +268,44 @@ app.post('/api/movies/:id/playback-status', async (req, res) => {
 
 // --- SUPABASE AUTHENTICATION & ADMIN GUARD ROUTES ---
 
+app.post('/api/auth/verify-email', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const check = await repo.verifyRealEmailAddress(email || '');
+    res.json(check);
+  } catch (error: any) {
+    res.status(500).json({ valid: false, error: error.message || 'Email verification failed' });
+  }
+});
+
+app.post('/api/auth/resend-email', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const result = await repo.resendSignupNotificationEmail(email || '');
+    if (!result.success) {
+      return res.status(400).json({ error: result.error || 'Could not resend email' });
+    }
+    res.json(result);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to resend email notification' });
+  }
+});
+
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { email, password } = req.body;
     const result = await repo.registerOrConfirmUser(email || '', password || '');
     if (!result.success) {
-      return res.status(400).json({ error: result.error || 'Registration failed' });
+      return res.status(400).json({
+        error: result.error || 'Registration failed',
+        suggestedEmail: result.suggestedEmail,
+      });
     }
-    res.json({ success: true, message: result.message });
+    res.json({
+      success: true,
+      emailSent: result.emailSent ?? true,
+      message: result.message,
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to register user' });
   }

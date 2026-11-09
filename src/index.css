@@ -9,11 +9,32 @@
     --font-mono: 'JetBrains Mono', monospace;
   }
 
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    overscroll-behavior-x: none;
+  }
+
   body {
     font-family: var(--font-sans);
     background-color: #050505;
     color: #F8FAFC;
     overflow-x: hidden;
+    overscroll-behavior-x: none;
+    -webkit-tap-highlight-color: transparent;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  button, a, [role="button"] {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Prevent iOS Safari from auto-zooming the viewport when tapping inputs on iPhone */
+  @media screen and (max-width: 768px) {
+    input, select, textarea {
+      font-size: 16px !important;
+    }
   }
 
   h1, h2, h3, h4, .font-display {
@@ -45,4 +66,5 @@
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
 }

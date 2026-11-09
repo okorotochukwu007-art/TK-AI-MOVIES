@@ -107,7 +107,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Manual YouTube lookup & import state
   const [lookupInput, setLookupInput] = useState('');
   const [lookupCategory, setLookupCategory] =
-    useState<MovieCategory>('Billionaire Romance');
+    useState<MovieCategory>('New Movies');
   const [lookupLoading, setLookupLoading] = useState(false);
   const [draftMovie, setDraftMovie] = useState<Partial<MovieItem> | null>(null);
 
@@ -125,7 +125,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [newSourceValue, setNewSourceValue] = useState('');
   const [newSourceLabel, setNewSourceLabel] = useState('');
   const [newSourceCategory, setNewSourceCategory] =
-    useState<MovieCategory>('Billionaire Romance');
+    useState<MovieCategory>('New Movies');
 
   // User tracking and Auth activity state
   const [userStats, setUserStats] = useState<UserAuthStats | null>(null);

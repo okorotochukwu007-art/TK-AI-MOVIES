@@ -266,6 +266,98 @@ app.post('/api/movies/:id/playback-status', async (req, res) => {
   }
 });
 
+app.post('/api/movies/:id/resolve-mp4', async (req, res) => {
+  try {
+    const { youtubeVideoId, quality = '720p' } = req.body;
+    const vid = String(youtubeVideoId || '').trim();
+    if (!vid || !/^[a-zA-Z0-9_-]{11}$/.test(vid)) {
+      return res.status(400).json({ error: 'Valid youtubeVideoId is required' });
+    }
+
+    const pipedEndpoints = [
+      `https://pipedapi.kavin.rocks/streams/${vid}`,
+      `https://pipedapi.tokhmi.xyz/streams/${vid}`,
+      `https://pipedapi.moomoo.me/streams/${vid}`,
+    ];
+
+    for (const endpoint of pipedEndpoints) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        const r = await fetch(endpoint, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (!r.ok) continue;
+        const data = (await r.json()) as any;
+        const streams: any[] = Array.isArray(data?.videoStreams)
+          ? data.videoStreams.filter((s: any) => s.videoOnly === false && s.url)
+          : [];
+        if (streams.length > 0) {
+          const preferred =
+            streams.find((s) =>
+              quality === '720p'
+                ? String(s.quality).includes('720')
+                : String(s.quality).includes('360') ||
+                  String(s.quality).includes('480')
+            ) || streams[0];
+          return res.json({
+            resolved: true,
+            directMp4Url: preferred.url,
+            quality: preferred.quality || quality,
+          });
+        }
+      } catch {
+        // try next mirror
+      }
+    }
+
+    const invidiousEndpoints = [
+      `https://inv.tux.pizza/api/v1/videos/${vid}`,
+      `https://invidious.nerdvpn.de/api/v1/videos/${vid}`,
+    ];
+
+    for (const endpoint of invidiousEndpoints) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        const r = await fetch(endpoint, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (!r.ok) continue;
+        const data = (await r.json()) as any;
+        const streams: any[] = Array.isArray(data?.formatStreams)
+          ? data.formatStreams.filter((s: any) => s.url)
+          : [];
+        if (streams.length > 0) {
+          const preferred =
+            streams.find((s) =>
+              quality === '720p'
+                ? String(s.qualityLabel).includes('720')
+                : String(s.qualityLabel).includes('360') ||
+                  String(s.qualityLabel).includes('480')
+            ) || streams[0];
+          return res.json({
+            resolved: true,
+            directMp4Url: preferred.url,
+            quality: preferred.qualityLabel || quality,
+          });
+        }
+      } catch {
+        // try next mirror
+      }
+    }
+
+    res.json({
+      resolved: false,
+      directMp4Url: null,
+    });
+  } catch (error: any) {
+    res.json({
+      resolved: false,
+      directMp4Url: null,
+      error: error.message,
+    });
+  }
+});
+
 // --- SUPABASE AUTHENTICATION & ADMIN GUARD ROUTES ---
 
 app.post('/api/auth/verify-email', async (req, res) => {

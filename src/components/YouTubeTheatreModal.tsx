@@ -3,6 +3,7 @@ import {
   Bookmark,
   Check,
   Copy,
+  Download,
   ExternalLink,
   FastForward,
   Heart,
@@ -28,6 +29,7 @@ import {
   MovieSeries,
 } from '../types/cinema.ts';
 import { CinemaPosterImage } from './CinemaPosterImage.tsx';
+import { isMovieInDeviceVault } from './DownloadMovieModal.tsx';
 import {
   BrandedShareCard,
   buildMovieShareMessage,
@@ -62,6 +64,7 @@ interface YouTubeTheatreModalProps {
     status: 'unavailable' | 'embed_restricted'
   ) => void;
   onEngagementChanged?: () => void;
+  onOpenDownload?: (movie: MovieItem) => void;
 }
 
 const REACTION_OPTIONS = [
@@ -86,6 +89,7 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
   onProgressUpdate,
   onPlaybackError,
   onEngagementChanged,
+  onOpenDownload,
 }) => {
   const [hasStarted, setHasStarted] = useState(initialAutoPlay);
   const [playerPlaying, setPlayerPlaying] = useState(initialAutoPlay);
@@ -320,6 +324,59 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
     []
   );
 
+  const sendPlayerCommand = React.useCallback(
+    (func: string, args: any[] = []) => {
+      const win = iframeRef.current?.contentWindow;
+      if (!win) return;
+      try {
+        win.postMessage(
+          JSON.stringify({
+            event: 'command',
+            func,
+            args,
+          }),
+          '*'
+        );
+      } catch {
+        // ignore
+      }
+    },
+    []
+  );
+
+  const toggleNativePlayPause = React.useCallback(() => {
+    if (playerPlaying) {
+      sendPlayerCommand('pauseVideo');
+      setPlayerPlaying(false);
+    } else {
+      sendPlayerCommand('playVideo');
+      setPlayerPlaying(true);
+    }
+  }, [playerPlaying, sendPlayerCommand]);
+
+  const toggleNativeMute = React.useCallback(() => {
+    if (isMuted) {
+      sendPlayerCommand('unMute');
+      setIsMuted(false);
+    } else {
+      sendPlayerCommand('mute');
+      setIsMuted(true);
+    }
+  }, [isMuted, sendPlayerCommand]);
+
+  const seekRelativeSeconds = React.useCallback(
+    (deltaSec: number) => {
+      const nextSec = Math.max(0, Math.floor(currentTimestamp + deltaSec));
+      setCurrentTimestamp(nextSec);
+      sendPlayerCommand('seekTo', [nextSec, true]);
+      if (!playerPlaying) {
+        sendPlayerCommand('playVideo');
+        setPlayerPlaying(true);
+      }
+    },
+    [currentTimestamp, playerPlaying, sendPlayerCommand]
+  );
+
   // Listen to YouTube IFrame API postMessage events and lock stream into hardware-accelerated 480p/720p H.264/VP9 range so 4K/AV1 never cracks audio
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -332,6 +389,26 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
       try {
         const payload =
           typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+        if (payload?.event === 'infoDelivery' && payload?.info) {
+          if (typeof payload.info.currentTime === 'number') {
+            setCurrentTimestamp(payload.info.currentTime);
+          }
+          if (
+            typeof payload.info.duration === 'number' &&
+            payload.info.duration > 0
+          ) {
+            setTotalDuration(payload.info.duration);
+          }
+          if (typeof payload.info.playerState === 'number') {
+            if (payload.info.playerState === 1) {
+              setPlayerPlaying(true);
+            } else if (payload.info.playerState === 2) {
+              setPlayerPlaying(false);
+            } else if (payload.info.playerState === 0 && nextBingeMovie) {
+              setBingeCountdown(5);
+            }
+          }
+        }
         if (
           payload?.event === 'onReady' ||
           payload?.event === 'onStateChange' ||
@@ -345,7 +422,7 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [applyLiveStreamQuality, streamQuality]);
+  }, [applyLiveStreamQuality, streamQuality, nextBingeMovie]);
 
   useEffect(() => {
     setHasStarted(true);
@@ -561,7 +638,8 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
             isMobileTheatreExpanded ? 'fixed inset-0 z-50 aspect-auto h-full' : ''
           }`}
         >
-          <div className={`w-full h-full ${screenFitScaleClass}`}>
+          {/* Cropped 16:9 Cinema Frame — Pushes YouTube's top title bar (-top-[60px]) and bottom "Watch on YouTube" / logo banner (+120px height) completely outside the overflow-hidden box */}
+          <div className={`relative w-full h-full overflow-hidden ${screenFitScaleClass}`}>
             <iframe
               ref={iframeRef}
               key={`${movie.youtubeVideoId}-${playerServer}`}
@@ -569,14 +647,35 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
               onLoad={handleIframeLoad}
               title={movie.title}
               loading="eager"
-              className="w-full h-full border-0 block bg-black"
+              className="absolute inset-x-0 -top-[60px] w-full h-[calc(100%+120px)] border-0 block bg-black"
               referrerPolicy="strict-origin-when-cross-origin"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen; web-share"
               allowFullScreen
             />
           </div>
 
-          {/* Single Solid Top TK STORYWORLD Banner — Static GPU Layer */}
+          {/* Native TK STORYWORLD Paused Cinema Shield — Hides YouTube's pause-screen banners when paused */}
+          {!playerPlaying && bingeCountdown === null && (
+            <div
+              onClick={toggleNativePlayPause}
+              className="absolute inset-0 z-[15] bg-black/80 flex flex-col items-center justify-center p-4 text-center cursor-pointer select-none"
+            >
+              <div className="w-16 h-16 rounded-full bg-[#E11D48] hover:bg-[#BE123C] text-white flex items-center justify-center shadow-2xl mb-3 transition-transform hover:scale-110">
+                <Play className="w-7 h-7 fill-current ml-0.5" />
+              </div>
+              <div className="font-luxury text-[#FF1E4D] tracking-[0.16em] text-[11px] font-black uppercase mb-1">
+                TK STORYWORLD CINEMA · PAUSED
+              </div>
+              <h3 className="font-display text-sm sm:text-lg font-bold text-white max-w-md line-clamp-1">
+                {movie.title}
+              </h3>
+              <p className="text-xs text-slate-300 mt-1">
+                Tap anywhere to resume movie in HD
+              </p>
+            </div>
+          )}
+
+          {/* Single Solid Top TK STORYWORLD Banner — Covers any top edge overlay */}
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
@@ -584,7 +683,7 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
               backfaceVisibility: 'hidden',
               contain: 'layout paint',
             }}
-            className="absolute top-0 inset-x-0 h-9 sm:h-14 z-10 bg-[#050505] border-b border-white/10 flex items-center justify-between px-2.5 sm:px-5 select-none"
+            className="absolute top-0 inset-x-0 h-11 sm:h-14 z-20 bg-[#050505] border-b border-white/10 flex items-center justify-between px-2.5 sm:px-5 select-none"
           >
             <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
               <span className="font-luxury text-[#FF1E4D] tracking-[0.12em] text-[10px] sm:text-xs font-black uppercase whitespace-nowrap shrink-0">
@@ -615,6 +714,19 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
               )}
             </div>
             <div className="flex items-center gap-1 sm:gap-2 shrink-0 ml-1">
+              {onOpenDownload && (
+                <button
+                  type="button"
+                  onClick={() => onOpenDownload(movie)}
+                  className="inline-flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-[10px] sm:text-xs font-semibold text-emerald-300 transition-colors cursor-pointer"
+                  title="Download Movie to Mobile or Computer"
+                >
+                  <Download className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-400" />
+                  <span className="hidden sm:inline">
+                    {isMovieInDeviceVault(movie.id) ? 'Downloaded' : 'Download'}
+                  </span>
+                </button>
+              )}
               <button
                 onClick={() => setShowShareCard((prev) => !prev)}
                 className="inline-flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg bg-white/10 hover:bg-white/15 border border-white/10 text-[10px] sm:text-xs font-semibold text-white transition-colors cursor-pointer"
@@ -633,7 +745,7 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
             </div>
           </div>
 
-          {/* Single Solid Bottom TK STORYWORLD Banner — Static GPU Layer */}
+          {/* Single Solid Bottom TK STORYWORLD Native Cinema Control Bar */}
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
@@ -641,17 +753,55 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
               backfaceVisibility: 'hidden',
               contain: 'layout paint',
             }}
-            className="absolute bottom-0 inset-x-0 h-9 sm:h-13 z-10 bg-[#050505] border-t border-white/10 flex items-center justify-between gap-1 px-2 sm:px-5 select-none overflow-x-auto no-scrollbar"
+            className="absolute bottom-0 inset-x-0 h-11 sm:h-14 z-20 bg-[#050505] border-t border-white/10 flex items-center justify-between gap-1.5 px-2.5 sm:px-5 select-none overflow-x-auto no-scrollbar"
           >
+            {/* Left Native Playback Controls: Play/Pause, -15s, +15s, Mute, CDN & Quality */}
             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-              <span className="hidden sm:inline font-luxury text-[#FF1E4D] tracking-[0.14em] text-xs font-black uppercase whitespace-nowrap">
-                TK STORYWORLD CINEMA
-              </span>
-              <span className="sm:hidden font-luxury text-[#FF1E4D] tracking-wider text-[10px] font-black uppercase whitespace-nowrap">
-                TK
-              </span>
-              <div className="flex items-center gap-1 sm:ml-2">
+              <button
+                type="button"
+                onClick={toggleNativePlayPause}
+                className="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-[#E11D48] hover:bg-[#BE123C] text-white cursor-pointer shrink-0"
+                title={playerPlaying ? 'Pause Movie' : 'Play Movie'}
+              >
+                {playerPlaying ? (
+                  <Pause className="w-3.5 h-3.5 fill-current" />
+                ) : (
+                  <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => seekRelativeSeconds(-15)}
+                className="inline-flex items-center justify-center px-1.5 py-1 rounded bg-white/10 hover:bg-white/15 text-slate-200 text-[10px] font-mono cursor-pointer shrink-0"
+                title="Rewind 15 Seconds"
+              >
+                -15s
+              </button>
+
+              <button
+                type="button"
+                onClick={() => seekRelativeSeconds(15)}
+                className="inline-flex items-center justify-center px-1.5 py-1 rounded bg-white/10 hover:bg-white/15 text-slate-200 text-[10px] font-mono cursor-pointer shrink-0"
+                title="Fast-Forward 15 Seconds"
+              >
+                +15s
+              </button>
+
+              <button
+                type="button"
+                onClick={toggleNativeMute}
+                className="inline-flex items-center justify-center w-7 h-7 rounded bg-white/10 hover:bg-white/15 text-slate-200 cursor-pointer shrink-0"
+                title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
+              >
+                {isMuted ? (
+                  <VolumeX className="w-3.5 h-3.5 text-rose-400" />
+                ) : (
+                  <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+                )}
+              </button>
+
+              <div className="flex items-center gap-1 ml-0.5 sm:ml-1">
                 <button
                   onClick={() => setPlayerServer('nocookie')}
                   className={`px-1.5 sm:px-2 py-0.5 rounded text-[9.5px] sm:text-[10px] font-semibold transition-colors cursor-pointer whitespace-nowrap ${
@@ -925,8 +1075,24 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
                   {movie.synopsis}
                 </p>
 
-                {/* Primary Viewer Actions: Binge Next, Love/Like, Watchlist, WhatsApp Share, Copy Link */}
+                {/* Primary Viewer Actions: Binge Next, Download Movie, Love/Like, Watchlist, WhatsApp Share, Copy Link */}
                 <div className="pt-3 flex flex-wrap items-center gap-2.5">
+                  {onOpenDownload && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenDownload(movie)}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold shadow-lg transition-all cursor-pointer"
+                      title="Download Movie to Mobile Phone or Computer"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>
+                        {isMovieInDeviceVault(movie.id)
+                          ? '✓ Downloaded on Device'
+                          : 'Download Movie'}
+                      </span>
+                    </button>
+                  )}
+
                   {nextBingeMovie && (
                     <button
                       onClick={triggerBingeNext}

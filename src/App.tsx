@@ -24,11 +24,18 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  Trash2,
   User,
   X,
 } from 'lucide-react';
 import { AdminDashboard } from './components/AdminDashboard.tsx';
 import { CinemaPosterImage } from './components/CinemaPosterImage.tsx';
+import {
+  DeviceDownloadedMovieItem,
+  DownloadMovieModal,
+  getDeviceDownloadedMovies,
+  removeMovieFromDeviceVault,
+} from './components/DownloadMovieModal.tsx';
 import {
   getNewReleaseMovies,
   NotificationsPopover,
@@ -215,10 +222,15 @@ export default function App() {
     autoPlay: boolean;
   } | null>(null);
 
-  // Viral Share Movie Modal & Deep-Link Invitation State
+  // Viral Share Movie Modal, Device Download Modal & Deep-Link Invitation State
   const [shareModalMovie, setShareModalMovie] = useState<MovieItem | null>(
     null
   );
+  const [downloadModalMovie, setDownloadModalMovie] =
+    useState<MovieItem | null>(null);
+  const [deviceDownloads, setDeviceDownloads] = useState<
+    DeviceDownloadedMovieItem[]
+  >(() => getDeviceDownloadedMovies());
   const [sharedInviteMovie, setSharedInviteMovie] = useState<MovieItem | null>(
     null
   );
@@ -249,18 +261,8 @@ export default function App() {
     promptInstall,
   } = usePWAInstall();
   const [showPWAInstallModal, setShowPWAInstallModal] = useState(false);
-  const [showSplashScreen, setShowSplashScreen] = useState<boolean>(() => {
-    try {
-      const seenSplash = sessionStorage.getItem('tk_storyworld_splash_shown');
-      if (!seenSplash) {
-        sessionStorage.setItem('tk_storyworld_splash_shown', '1');
-        return true;
-      }
-      return false;
-    } catch {
-      return false;
-    }
-  });
+  // Instant zero-delay load when clicking the website link
+  const [showSplashScreen, setShowSplashScreen] = useState<boolean>(false);
 
   const isUserSignedIn = useMemo(() => {
     return Boolean(authSession?.user?.email || localUserEmail);
@@ -1327,6 +1329,16 @@ export default function App() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
+                    setDownloadModalMovie(movie);
+                  }}
+                  className="text-emerald-400/90 hover:text-emerald-300 p-1 cursor-pointer transition-colors"
+                  title="Download Movie to Device or Save to Device Vault"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
                     setShareModalMovie(movie);
                   }}
                   className="text-slate-400 hover:text-[#F59E0B] p-1 cursor-pointer transition-colors"
@@ -1976,10 +1988,10 @@ export default function App() {
             <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-6 border-b border-white/10">
               <div>
                 <div className="text-xs text-slate-400">
-                  Personal Library · {currentUserEmail}
+                  Personal Library & Device Vault · {currentUserEmail}
                 </div>
                 <h1 className="font-display text-2xl sm:text-3xl font-bold text-white mt-1">
-                  My Saved Watchlist & Continue Watching
+                  My Downloads, Saved Watchlist & Continue Watching
                 </h1>
               </div>
               <button
@@ -1988,6 +2000,126 @@ export default function App() {
               >
                 Explore All 12 Categories
               </button>
+            </div>
+
+            {/* IN-APP DEVICE VAULT (DOWNLOADED ON THIS DEVICE) */}
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h2 className="font-display text-lg font-bold text-white flex items-center gap-2">
+                    <Download className="w-5 h-5 text-emerald-400" />
+                    <span>
+                      Downloaded on This Device ({deviceDownloads.length})
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Movies saved to your In-App Device Vault or downloaded to your Phone / Computer storage.
+                  </p>
+                </div>
+              </div>
+
+              {deviceDownloads.length === 0 ? (
+                <div className="rounded-2xl bg-[#0E1118] border border-emerald-500/20 p-8 text-center space-y-2.5">
+                  <p className="text-sm text-slate-200 font-medium">
+                    No movies saved in your Device Vault yet.
+                  </p>
+                  <p className="text-xs text-slate-400 max-w-lg mx-auto">
+                    Click the green <span className="text-emerald-400 font-semibold">Download</span> button on any movie card or inside the theatre player to save it to your In-App Device Vault or download the file directly to your phone or computer.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                  {deviceDownloads.map((item) => {
+                    const matchedMovie =
+                      movies.find((m) => m.id === item.movieId) ||
+                      ({
+                        ...INITIAL_MOVIES[0],
+                        id: item.movieId,
+                        youtubeVideoId: item.youtubeVideoId,
+                        title: item.title,
+                        synopsis: `${item.category} blockbuster feature saved in your TK STORYWORLD Device Vault.`,
+                        thumbnailUrl: item.thumbnailUrl,
+                        backdropUrl: item.backdropUrl,
+                        primaryCategory: item.category as MovieCategory,
+                        secondaryCategories: [item.category as MovieCategory],
+                        durationFormatted: item.durationFormatted,
+                        publishedAt: item.downloadedAt,
+                      } as MovieItem);
+
+                    return (
+                      <div
+                        key={item.movieId}
+                        className="rounded-xl overflow-hidden bg-[#0E1118] border border-emerald-500/30 flex flex-col justify-between shadow-lg"
+                      >
+                        <div
+                          onClick={() => openMovieModal(matchedMovie, true)}
+                          className="relative aspect-video bg-black cursor-pointer group overflow-hidden"
+                        >
+                          <CinemaPosterImage
+                            src={item.backdropUrl || item.thumbnailUrl}
+                            fallbackVideoId={item.youtubeVideoId}
+                            alt={item.title}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
+                          <div className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded bg-emerald-500/90 text-slate-950 text-[10px] font-bold uppercase tracking-wider">
+                            {item.quality} · {item.estimatedSizeMb} MB
+                          </div>
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="w-11 h-11 rounded-full bg-[#E11D48]/95 text-white flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                              <Play className="w-5 h-5 fill-current ml-0.5" />
+                            </div>
+                          </div>
+                          <div className="absolute bottom-2 right-2.5 text-[11px] font-mono text-white/90 bg-black/70 px-1.5 py-0.5 rounded">
+                            {item.durationFormatted}
+                          </div>
+                        </div>
+
+                        <div className="p-3.5 space-y-3 flex-1 flex flex-col justify-between">
+                          <div>
+                            <h3 className="font-display text-sm font-bold text-white line-clamp-1">
+                              {item.title}
+                            </h3>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              {item.category} · Saved{' '}
+                              {new Date(item.downloadedAt).toLocaleDateString()}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2 pt-1">
+                            <button
+                              onClick={() => openMovieModal(matchedMovie, true)}
+                              className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-lg bg-[#E11D48] hover:bg-[#BE123C] text-white text-xs font-semibold cursor-pointer"
+                            >
+                              <Play className="w-3.5 h-3.5 fill-current" />
+                              <span>Play Now</span>
+                            </button>
+                            <button
+                              onClick={() => setDownloadModalMovie(matchedMovie)}
+                              className="px-2.5 py-2 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-semibold cursor-pointer"
+                              title="Download file to device storage"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                const updated = removeMovieFromDeviceVault(
+                                  item.movieId
+                                );
+                                setDeviceDownloads(updated);
+                              }}
+                              className="px-2.5 py-2 rounded-lg bg-white/5 hover:bg-rose-500/20 border border-white/10 text-slate-400 hover:text-rose-300 text-xs cursor-pointer"
+                              title="Remove from Device Vault"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {continueWatchingMovies.length > 0 && (
@@ -2392,6 +2524,14 @@ export default function App() {
                               <span>Save</span>
                             </>
                           )}
+                        </button>
+
+                        <button
+                          onClick={() => setDownloadModalMovie(featuredMovie)}
+                          className="inline-flex items-center gap-2 px-4 py-3.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-sm font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                        >
+                          <Download className="w-4 h-4 text-emerald-400" />
+                          <span>Download</span>
                         </button>
 
                         <button
@@ -3483,6 +3623,20 @@ export default function App() {
           onProgressUpdate={handleProgressUpdate}
           onPlaybackError={handlePlaybackError}
           onEngagementChanged={() => void loadBootstrapData()}
+          onOpenDownload={(mov) => setDownloadModalMovie(mov)}
+        />
+      )}
+
+      {/* METHOD C: COMBINED IN-APP DEVICE VAULT + DIRECT .MP4 DEVICE DOWNLOADER MODAL */}
+      {downloadModalMovie && (
+        <DownloadMovieModal
+          movie={downloadModalMovie}
+          onClose={() => setDownloadModalMovie(null)}
+          onPlayMovie={(mov) => {
+            setDownloadModalMovie(null);
+            openMovieModal(mov, true);
+          }}
+          onVaultUpdated={(items) => setDeviceDownloads(items)}
         />
       )}
 

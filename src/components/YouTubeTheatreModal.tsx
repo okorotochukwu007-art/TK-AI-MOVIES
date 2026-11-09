@@ -366,16 +366,55 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
 
   const seekRelativeSeconds = React.useCallback(
     (deltaSec: number) => {
-      const nextSec = Math.max(0, Math.floor(currentTimestamp + deltaSec));
+      const nextSec = Math.min(
+        totalDuration,
+        Math.max(0, Math.floor(currentTimestamp + deltaSec))
+      );
       setCurrentTimestamp(nextSec);
       sendPlayerCommand('seekTo', [nextSec, true]);
       if (!playerPlaying) {
         sendPlayerCommand('playVideo');
         setPlayerPlaying(true);
       }
+      onProgressUpdate(movie.id, nextSec, totalDuration);
     },
-    [currentTimestamp, playerPlaying, sendPlayerCommand]
+    [currentTimestamp, totalDuration, playerPlaying, sendPlayerCommand, movie.id, onProgressUpdate]
   );
+
+  const [isScrubbing, setIsScrubbing] = useState(false);
+  const [scrubPreviewSec, setScrubPreviewSec] = useState<number | null>(null);
+
+  const seekToAbsoluteSeconds = React.useCallback(
+    (targetSec: number) => {
+      const clamped = Math.min(
+        totalDuration,
+        Math.max(0, Math.floor(targetSec))
+      );
+      setCurrentTimestamp(clamped);
+      sendPlayerCommand('seekTo', [clamped, true]);
+      if (!playerPlaying) {
+        sendPlayerCommand('playVideo');
+        setPlayerPlaying(true);
+      }
+      onProgressUpdate(movie.id, clamped, totalDuration);
+    },
+    [totalDuration, playerPlaying, sendPlayerCommand, movie.id, onProgressUpdate]
+  );
+
+  // Smooth 1-second progress ticker while movie is playing + periodic progress persistence
+  useEffect(() => {
+    if (!playerPlaying || isScrubbing) return;
+    const interval = window.setInterval(() => {
+      setCurrentTimestamp((prev) => {
+        const next = Math.min(totalDuration, prev + 1);
+        if (Math.floor(next) % 10 === 0) {
+          onProgressUpdate(movie.id, Math.floor(next), totalDuration);
+        }
+        return next;
+      });
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [playerPlaying, isScrubbing, totalDuration, movie.id, onProgressUpdate]);
 
   // Listen to YouTube IFrame API postMessage events and lock stream into hardware-accelerated 480p/720p H.264/VP9 range so 4K/AV1 never cracks audio
   useEffect(() => {
@@ -390,7 +429,10 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
         const payload =
           typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
         if (payload?.event === 'infoDelivery' && payload?.info) {
-          if (typeof payload.info.currentTime === 'number') {
+          if (
+            typeof payload.info.currentTime === 'number' &&
+            !isScrubbing
+          ) {
             setCurrentTimestamp(payload.info.currentTime);
           }
           if (
@@ -422,7 +464,7 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [applyLiveStreamQuality, streamQuality, nextBingeMovie]);
+  }, [applyLiveStreamQuality, streamQuality, nextBingeMovie, isScrubbing]);
 
   useEffect(() => {
     setHasStarted(true);
@@ -430,24 +472,36 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
     setIsStreamSettled(false);
     setCurrentTimestamp(resumeSeconds);
     setStartOffsetSec(resumeSeconds > 15 ? Math.floor(resumeSeconds) : 0);
-    setTotalDuration(movie.durationSeconds || 600);
+    setTotalDuration(movie.durationSeconds || 5400);
     setSelectedSeason(movie.seasonNumber || 1);
     setStreamError(null);
     const settleTimer = window.setTimeout(() => {
       setIsStreamSettled(true);
     }, 1600);
     return () => window.clearTimeout(settleTimer);
-  }, [movie.id, movie.youtubeVideoId, initialAutoPlay, movie.durationSeconds, movie.seasonNumber]);
+  }, [movie.id, movie.youtubeVideoId, initialAutoPlay, movie.durationSeconds, movie.seasonNumber, resumeSeconds]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose();
+      } else if (
+        e.key === 'ArrowRight' &&
+        document.activeElement?.tagName !== 'INPUT' &&
+        document.activeElement?.tagName !== 'TEXTAREA'
+      ) {
+        seekRelativeSeconds(15);
+      } else if (
+        e.key === 'ArrowLeft' &&
+        document.activeElement?.tagName !== 'INPUT' &&
+        document.activeElement?.tagName !== 'TEXTAREA'
+      ) {
+        seekRelativeSeconds(-15);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [onClose, seekRelativeSeconds]);
 
   const [isMobileTheatreExpanded, setIsMobileTheatreExpanded] = useState(false);
   const [screenFitMode, setScreenFitMode] = useState<'fill' | 'zoom' | 'fit'>('fit');
@@ -612,15 +666,25 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
   };
 
   const formatSec = (sec: number) => {
-    const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
+    const safe = Math.max(0, Math.floor(sec || 0));
+    const h = Math.floor(safe / 3600);
+    const m = Math.floor((safe % 3600) / 60);
+    const s = Math.floor(safe % 60);
+    if (h > 0) {
+      return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
+  const displaySeconds =
+    isScrubbing && scrubPreviewSec !== null ? scrubPreviewSec : currentTimestamp;
+
   const progressPct =
     totalDuration > 0
-      ? Math.min(100, Math.max(0, (currentTimestamp / totalDuration) * 100))
+      ? Math.min(100, Math.max(0, (displaySeconds / totalDuration) * 100))
       : 0;
+
+  const bufferedPct = Math.min(100, progressPct + 14);
 
   return (
     <div
@@ -631,7 +695,7 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
     >
       {/* Pure rectangular container (no rounded-2xl / shadow-2xl) so GPU promotes video directly to Hardware Overlay without alpha-mask shader clipping */}
       <div className="relative w-full max-w-5xl h-[100dvh] sm:h-auto sm:max-h-[95vh] bg-[#0B0D13] border-0 sm:border border-white/10 overflow-hidden flex flex-col">
-        {/* Sticky 16:9 Cinema Video Player — Single Top Banner & Single Bottom Banner */}
+        {/* Sticky 16:9 Cinema Video Player — Single Top Banner & Single Bottom Banner with Interactive Video Progress Bar */}
         <div
           ref={videoViewportRef}
           className={`relative w-full aspect-video bg-black overflow-hidden shrink-0 border-b border-white/10 ${
@@ -670,7 +734,7 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
                 {movie.title}
               </h3>
               <p className="text-xs text-slate-300 mt-1">
-                Tap anywhere to resume movie in HD
+                Tap anywhere to resume movie in HD · {formatSec(displaySeconds)} / {formatSec(totalDuration)}
               </p>
             </div>
           )}
@@ -719,11 +783,11 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
                   type="button"
                   onClick={() => onOpenDownload(movie)}
                   className="inline-flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-[10px] sm:text-xs font-semibold text-emerald-300 transition-colors cursor-pointer"
-                  title="Download Movie to Mobile or Computer"
+                  title="Save Movie to Saved Movies or Download to Device"
                 >
                   <Download className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-400" />
                   <span className="hidden sm:inline">
-                    {isMovieInDeviceVault(movie.id) ? 'Downloaded' : 'Download'}
+                    {isMovieInDeviceVault(movie.id) ? 'Saved in App' : 'Download'}
                   </span>
                 </button>
               )}
@@ -745,7 +809,7 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
             </div>
           </div>
 
-          {/* Single Solid Bottom TK STORYWORLD Native Cinema Control Bar */}
+          {/* Single Solid Bottom TK STORYWORLD Native Cinema Control Bar + Interactive Video Progress Bar */}
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
@@ -753,128 +817,206 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
               backfaceVisibility: 'hidden',
               contain: 'layout paint',
             }}
-            className="absolute bottom-0 inset-x-0 h-11 sm:h-14 z-20 bg-[#050505] border-t border-white/10 flex items-center justify-between gap-1.5 px-2.5 sm:px-5 select-none overflow-x-auto no-scrollbar"
+            className="absolute bottom-0 inset-x-0 z-20 bg-[#050505]/95 border-t border-white/15 px-2.5 sm:px-5 pt-1.5 pb-1.5 sm:py-2 flex flex-col gap-1.5 select-none"
           >
-            {/* Left Native Playback Controls: Play/Pause, -15s, +15s, Mute, CDN & Quality */}
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={toggleNativePlayPause}
-                className="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-[#E11D48] hover:bg-[#BE123C] text-white cursor-pointer shrink-0"
-                title={playerPlaying ? 'Pause Movie' : 'Play Movie'}
-              >
-                {playerPlaying ? (
-                  <Pause className="w-3.5 h-3.5 fill-current" />
-                ) : (
-                  <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
-                )}
-              </button>
+            {/* ROW 1: INTERACTIVE VIDEO PROGRESS BAR & SCRUBBER TIMELINE */}
+            <div className="flex items-center gap-2.5 w-full">
+              <span className="font-mono text-[10px] sm:text-xs text-white font-semibold tabular-nums shrink-0 min-w-[42px] sm:min-w-[52px]">
+                {formatSec(displaySeconds)}
+              </span>
 
-              <button
-                type="button"
-                onClick={() => seekRelativeSeconds(-15)}
-                className="inline-flex items-center justify-center px-1.5 py-1 rounded bg-white/10 hover:bg-white/15 text-slate-200 text-[10px] font-mono cursor-pointer shrink-0"
-                title="Rewind 15 Seconds"
-              >
-                -15s
-              </button>
+              <div className="relative flex-1 h-5 flex items-center group cursor-pointer">
+                {/* Base Track */}
+                <div className="w-full h-1.5 sm:h-2 rounded-full bg-white/15 overflow-hidden relative">
+                  {/* Buffered Bar */}
+                  <div
+                    className="absolute inset-y-0 left-0 bg-white/25 transition-all duration-300"
+                    style={{ width: `${bufferedPct}%` }}
+                  />
+                  {/* Active Watched Progress Fill */}
+                  <div
+                    className="absolute inset-y-0 left-0 bg-gradient-to-r from-[#E11D48] via-[#FF1E4D] to-[#F59E0B]"
+                    style={{ width: `${progressPct}%` }}
+                  />
+                </div>
 
-              <button
-                type="button"
-                onClick={() => seekRelativeSeconds(15)}
-                className="inline-flex items-center justify-center px-1.5 py-1 rounded bg-white/10 hover:bg-white/15 text-slate-200 text-[10px] font-mono cursor-pointer shrink-0"
-                title="Fast-Forward 15 Seconds"
-              >
-                +15s
-              </button>
+                {/* Visible Scrubber Handle Thumb */}
+                <div
+                  className="pointer-events-none absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full bg-white border-2 border-[#E11D48] shadow-lg transition-transform group-hover:scale-125"
+                  style={{ left: `${progressPct}%` }}
+                />
 
-              <button
-                type="button"
-                onClick={toggleNativeMute}
-                className="inline-flex items-center justify-center w-7 h-7 rounded bg-white/10 hover:bg-white/15 text-slate-200 cursor-pointer shrink-0"
-                title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
-              >
-                {isMuted ? (
-                  <VolumeX className="w-3.5 h-3.5 text-rose-400" />
-                ) : (
-                  <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
-                )}
-              </button>
-
-              <div className="flex items-center gap-1 ml-0.5 sm:ml-1">
-                <button
-                  onClick={() => setPlayerServer('nocookie')}
-                  className={`px-1.5 sm:px-2 py-0.5 rounded text-[9.5px] sm:text-[10px] font-semibold transition-colors cursor-pointer whitespace-nowrap ${
-                    playerServer === 'nocookie'
-                      ? 'bg-[#E11D48] text-white'
-                      : 'bg-white/5 hover:bg-white/10 text-slate-300'
-                  }`}
-                  title="Fast Privacy CDN Server (Recommended)"
-                >
-                  CDN 1
-                </button>
-                <button
-                  onClick={() => setPlayerServer('standard')}
-                  className={`px-1.5 sm:px-2 py-0.5 rounded text-[9.5px] sm:text-[10px] font-semibold transition-colors cursor-pointer whitespace-nowrap ${
-                    playerServer === 'standard'
-                      ? 'bg-[#E11D48] text-white'
-                      : 'bg-white/5 hover:bg-white/10 text-slate-300'
-                  }`}
-                  title="Standard CDN Server"
-                >
-                  CDN 2
-                </button>
-                <button
-                  onClick={() => {
-                    const nextQ =
-                      streamQuality === 'hd720'
-                        ? 'large'
-                        : streamQuality === 'large'
-                        ? 'hd1080'
-                        : 'hd720';
-                    setStreamQuality(nextQ);
-                    applyLiveStreamQuality(nextQ);
+                {/* Native Touch & Mouse Range Scrubber Input */}
+                <input
+                  type="range"
+                  min={0}
+                  max={Math.max(1, Math.floor(totalDuration))}
+                  step={1}
+                  value={Math.floor(displaySeconds)}
+                  aria-label="Video Progress Bar"
+                  onMouseDown={() => setIsScrubbing(true)}
+                  onTouchStart={() => setIsScrubbing(true)}
+                  onChange={(e) => {
+                    const nextVal = Number(e.target.value);
+                    setIsScrubbing(true);
+                    setScrubPreviewSec(nextVal);
                   }}
-                  className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[9.5px] sm:text-[10px] font-semibold cursor-pointer whitespace-nowrap"
-                  title="Live Audio/Video Anti-Crack Stream Stabilizer (Changes Quality Without Reloading)"
+                  onMouseUp={(e) => {
+                    const targetVal = Number(
+                      (e.target as HTMLInputElement).value
+                    );
+                    setIsScrubbing(false);
+                    setScrubPreviewSec(null);
+                    seekToAbsoluteSeconds(targetVal);
+                  }}
+                  onTouchEnd={(e) => {
+                    const targetVal = Number(
+                      (e.target as HTMLInputElement).value
+                    );
+                    setIsScrubbing(false);
+                    setScrubPreviewSec(null);
+                    seekToAbsoluteSeconds(targetVal);
+                  }}
+                  onKeyUp={(e) => {
+                    const targetVal = Number(
+                      (e.target as HTMLInputElement).value
+                    );
+                    setIsScrubbing(false);
+                    setScrubPreviewSec(null);
+                    seekToAbsoluteSeconds(targetVal);
+                  }}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                />
+              </div>
+
+              <span className="font-mono text-[10px] sm:text-xs text-slate-300 tabular-nums shrink-0 min-w-[42px] sm:min-w-[52px] text-right">
+                {formatSec(totalDuration)}
+              </span>
+            </div>
+
+            {/* ROW 2: PLAYBACK CONTROLS, QUALITY & FULLSCREEN */}
+            <div className="flex items-center justify-between gap-1.5 overflow-x-auto no-scrollbar">
+              {/* Left Native Playback Controls: Play/Pause, -15s, +15s, Mute, CDN & Quality */}
+              <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={toggleNativePlayPause}
+                  className="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-[#E11D48] hover:bg-[#BE123C] text-white cursor-pointer shrink-0"
+                  title={playerPlaying ? 'Pause Movie' : 'Play Movie'}
                 >
-                  <span>
-                    {streamQuality === 'hd720'
-                      ? '⚡ 720p'
-                      : streamQuality === 'large'
-                      ? '🛡️ 480p'
-                      : '🎬 1080p'}
-                  </span>
+                  {playerPlaying ? (
+                    <Pause className="w-3.5 h-3.5 fill-current" />
+                  ) : (
+                    <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => seekRelativeSeconds(-15)}
+                  className="inline-flex items-center justify-center px-1.5 py-1 rounded bg-white/10 hover:bg-white/15 text-slate-200 text-[10px] font-mono cursor-pointer shrink-0"
+                  title="Rewind 15 Seconds"
+                >
+                  -15s
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => seekRelativeSeconds(15)}
+                  className="inline-flex items-center justify-center px-1.5 py-1 rounded bg-white/10 hover:bg-white/15 text-slate-200 text-[10px] font-mono cursor-pointer shrink-0"
+                  title="Fast-Forward 15 Seconds"
+                >
+                  +15s
+                </button>
+
+                <button
+                  type="button"
+                  onClick={toggleNativeMute}
+                  className="inline-flex items-center justify-center w-7 h-7 rounded bg-white/10 hover:bg-white/15 text-slate-200 cursor-pointer shrink-0"
+                  title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
+                >
+                  {isMuted ? (
+                    <VolumeX className="w-3.5 h-3.5 text-rose-400" />
+                  ) : (
+                    <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+                  )}
+                </button>
+
+                <div className="flex items-center gap-1 ml-0.5 sm:ml-1">
+                  <button
+                    onClick={() => setPlayerServer('nocookie')}
+                    className={`px-1.5 sm:px-2 py-0.5 rounded text-[9.5px] sm:text-[10px] font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+                      playerServer === 'nocookie'
+                        ? 'bg-[#E11D48] text-white'
+                        : 'bg-white/5 hover:bg-white/10 text-slate-300'
+                    }`}
+                    title="Fast Privacy CDN Server (Recommended)"
+                  >
+                    CDN 1
+                  </button>
+                  <button
+                    onClick={() => setPlayerServer('standard')}
+                    className={`px-1.5 sm:px-2 py-0.5 rounded text-[9.5px] sm:text-[10px] font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+                      playerServer === 'standard'
+                        ? 'bg-[#E11D48] text-white'
+                        : 'bg-white/5 hover:bg-white/10 text-slate-300'
+                    }`}
+                    title="Standard CDN Server"
+                  >
+                    CDN 2
+                  </button>
+                  <button
+                    onClick={() => {
+                      const nextQ =
+                        streamQuality === 'hd720'
+                          ? 'large'
+                          : streamQuality === 'large'
+                          ? 'hd1080'
+                          : 'hd720';
+                      setStreamQuality(nextQ);
+                      applyLiveStreamQuality(nextQ);
+                    }}
+                    className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[9.5px] sm:text-[10px] font-semibold cursor-pointer whitespace-nowrap"
+                    title="Live Audio/Video Anti-Crack Stream Stabilizer (Changes Quality Without Reloading)"
+                  >
+                    <span>
+                      {streamQuality === 'hd720'
+                        ? '⚡ 720p'
+                        : streamQuality === 'large'
+                        ? '🛡️ 480p'
+                        : '🎬 1080p'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                {nextBingeMovie && (
+                  <button
+                    onClick={triggerBingeNext}
+                    className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md bg-[#E11D48] hover:bg-[#BE123C] text-white text-[10px] sm:text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap"
+                    title={`Binge Next: ${nextBingeMovie.title}`}
+                  >
+                    <FastForward className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                    <span className="hidden sm:inline">Next Movie</span>
+                    <span className="sm:hidden">Next</span>
+                  </button>
+                )}
+                <button
+                  onClick={cycleScreenFitMode}
+                  className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white text-[11px] font-medium cursor-pointer whitespace-nowrap"
+                  title="Toggle Widescreen Fill Mode"
+                >
+                  <span>{screenFitLabel}</span>
+                </button>
+                <button
+                  onClick={() => void toggleFullscreen()}
+                  className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md bg-white/15 hover:bg-white/25 text-white text-[10px] sm:text-[11px] font-semibold cursor-pointer whitespace-nowrap"
+                  title="Fullscreen Cinema"
+                >
+                  <Maximize2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                  <span>{isMobileTheatreExpanded ? 'Exit Full' : 'Full'}</span>
                 </button>
               </div>
-            </div>
-            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-              {nextBingeMovie && (
-                <button
-                  onClick={triggerBingeNext}
-                  className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md bg-[#E11D48] hover:bg-[#BE123C] text-white text-[10px] sm:text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap"
-                  title={`Binge Next: ${nextBingeMovie.title}`}
-                >
-                  <FastForward className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                  <span className="hidden sm:inline">Next Movie</span>
-                  <span className="sm:hidden">Next</span>
-                </button>
-              )}
-              <button
-                onClick={cycleScreenFitMode}
-                className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white text-[11px] font-medium cursor-pointer whitespace-nowrap"
-                title="Toggle Widescreen Fill Mode"
-              >
-                <span>{screenFitLabel}</span>
-              </button>
-              <button
-                onClick={() => void toggleFullscreen()}
-                className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md bg-white/15 hover:bg-white/25 text-white text-[10px] sm:text-[11px] font-semibold cursor-pointer whitespace-nowrap"
-                title="Fullscreen Cinema"
-              >
-                <Maximize2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                <span>{isMobileTheatreExpanded ? 'Exit Full' : 'Full'}</span>
-              </button>
             </div>
           </div>
 

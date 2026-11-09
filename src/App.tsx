@@ -67,7 +67,14 @@ import {
   WatchProgressItem,
 } from './types/cinema.ts';
 
-type NavView = 'home' | 'nigerian' | 'series' | 'categories' | 'watchlist' | 'admin';
+type NavView =
+  | 'home'
+  | 'nigerian'
+  | 'series'
+  | 'categories'
+  | 'saved'
+  | 'watchlist'
+  | 'admin';
 type SortOption = 'popularity' | 'most_loved' | 'release_date' | 'recently_added';
 type CategoryDisplayMode = 'grouped' | 'grid';
 type NigerianSubGenre =
@@ -231,6 +238,10 @@ export default function App() {
   const [deviceDownloads, setDeviceDownloads] = useState<
     DeviceDownloadedMovieItem[]
   >(() => getDeviceDownloadedMovies());
+  const [savedQualityFilter, setSavedQualityFilter] = useState<
+    'all' | '720p HD' | '480p Fast'
+  >('all');
+  const [savedSearchQuery, setSavedSearchQuery] = useState('');
   const [sharedInviteMovie, setSharedInviteMovie] = useState<MovieItem | null>(
     null
   );
@@ -1472,6 +1483,26 @@ export default function App() {
           >
             Categories
           </a>
+          <a
+            href="#saved"
+            onClick={(e) => {
+              e.preventDefault();
+              setActiveView('saved');
+            }}
+            className={`inline-flex items-center gap-1.5 hover:text-emerald-300 transition-colors whitespace-nowrap shrink-0 ${
+              activeView === 'saved'
+                ? 'text-emerald-400 underline underline-offset-8 decoration-emerald-400 decoration-2 font-semibold'
+                : 'text-emerald-400/95'
+            }`}
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Saved Movies</span>
+            {deviceDownloads.length > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono text-[10px] font-bold">
+                {deviceDownloads.length}
+              </span>
+            )}
+          </a>
           {isAdminAuthenticated ? (
             <a
               href="#admin"
@@ -1565,6 +1596,13 @@ export default function App() {
         {[
           { id: 'home', label: 'Home' },
           { id: 'nigerian', label: 'Nigerian AI' },
+          {
+            id: 'saved',
+            label:
+              deviceDownloads.length > 0
+                ? `Saved Movies (${deviceDownloads.length})`
+                : 'Saved Movies',
+          },
           { id: 'series', label: 'Series' },
           { id: 'categories', label: 'Categories' },
           { id: 'watchlist', label: 'Watchlist' },
@@ -1574,7 +1612,13 @@ export default function App() {
             key={item.id}
             onClick={() => setActiveView(item.id as NavView)}
             className={`px-3 py-1.5 rounded-md whitespace-nowrap shrink-0 cursor-pointer ${
-              activeView === item.id ? 'text-[#E11D48] font-bold bg-white/5' : ''
+              activeView === item.id
+                ? item.id === 'saved'
+                  ? 'text-emerald-400 font-bold bg-emerald-500/15 border border-emerald-500/30'
+                  : 'text-[#E11D48] font-bold bg-white/5'
+                : item.id === 'saved'
+                ? 'text-emerald-400 font-semibold'
+                : ''
             }`}
           >
             {item.label}
@@ -1983,23 +2027,316 @@ export default function App() {
               )}
             </div>
           </div>
+        ) : activeView === 'saved' ? (
+          <section className="max-w-[1400px] mx-auto px-5 sm:px-10 py-10 space-y-8">
+            {/* SAVED MOVIES PAGE HEADER */}
+            <div className="rounded-2xl bg-gradient-to-r from-[#091512] via-[#0B0F19] to-[#170910] border border-emerald-500/30 p-6 sm:p-8 space-y-6 shadow-2xl">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+                <div className="space-y-2 max-w-2xl">
+                  <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-400">
+                    <Download className="w-4 h-4" />
+                    <span>
+                      TK STORYWORLD · SAVED MOVIES VAULT ({deviceDownloads.length}{' '}
+                      DOWNLOADED)
+                    </span>
+                  </div>
+                  <h1 className="font-display text-2xl sm:text-4xl font-extrabold text-white">
+                    Saved Movies
+                  </h1>
+                  <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                    All movies you download on TK STORYWORLD are stored right here in{' '}
+                    <strong className="text-emerald-400">Saved Movies</strong> for
+                    instant in-app access and playback on your phone or computer.
+                  </p>
+                </div>
+
+                {/* Vault Storage Summary */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 shrink-0">
+                  <div className="rounded-xl bg-black/50 border border-white/10 px-4 py-3">
+                    <div className="text-[10px] uppercase tracking-wider text-slate-400">
+                      Saved Movies
+                    </div>
+                    <div className="font-mono text-xl font-bold text-emerald-400 mt-0.5">
+                      {deviceDownloads.length}
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-black/50 border border-white/10 px-4 py-3">
+                    <div className="text-[10px] uppercase tracking-wider text-slate-400">
+                      App Vault Size
+                    </div>
+                    <div className="font-mono text-xl font-bold text-[#F59E0B] mt-0.5">
+                      {deviceDownloads.reduce(
+                        (sum, item) => sum + (item.estimatedSizeMb || 0),
+                        0
+                      )}{' '}
+                      MB
+                    </div>
+                  </div>
+                  <div className="col-span-2 sm:col-span-1 rounded-xl bg-black/50 border border-white/10 px-4 py-3">
+                    <div className="text-[10px] uppercase tracking-wider text-slate-400">
+                      Vault Status
+                    </div>
+                    <div className="text-xs font-bold text-white mt-1 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                      <span>{isOnline ? 'Ready in App' : 'Offline Active'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Filter & Search Bar inside Saved Movies */}
+              {deviceDownloads.length > 0 && (
+                <div className="pt-4 border-t border-white/10 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+                    {(['all', '720p HD', '480p Fast'] as const).map((qFilter) => (
+                      <button
+                        key={qFilter}
+                        onClick={() => setSavedQualityFilter(qFilter)}
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+                          savedQualityFilter === qFilter
+                            ? 'bg-emerald-500 text-slate-950 font-bold'
+                            : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10'
+                        }`}
+                      >
+                        {qFilter === 'all'
+                          ? `All Downloaded (${deviceDownloads.length})`
+                          : qFilter}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="relative w-full sm:w-72">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={savedSearchQuery}
+                      onChange={(e) => setSavedSearchQuery(e.target.value)}
+                      placeholder="Search your saved movies..."
+                      className="w-full pl-9 pr-8 py-2 rounded-xl bg-black/60 border border-white/15 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-400"
+                    />
+                    {savedSearchQuery && (
+                      <button
+                        onClick={() => setSavedSearchQuery('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* SAVED MOVIES GRID */}
+            {deviceDownloads.length === 0 ? (
+              <div className="space-y-8">
+                <div className="rounded-2xl bg-[#0E1118] border border-emerald-500/25 p-10 text-center space-y-4">
+                  <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto">
+                    <Download className="w-7 h-7" />
+                  </div>
+                  <div className="space-y-1.5 max-w-lg mx-auto">
+                    <h2 className="font-display text-xl font-bold text-white">
+                      Your Saved Movies Page Is Ready
+                    </h2>
+                    <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
+                      Tap the green{' '}
+                      <span className="text-emerald-400 font-semibold">
+                        Download
+                      </span>{' '}
+                      button on any movie card or inside the video player to store
+                      movies right here in <strong className="text-white">Saved Movies</strong>.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                    <button
+                      onClick={() => setActiveView('home')}
+                      className="px-5 py-2.5 rounded-xl bg-[#E11D48] hover:bg-[#BE123C] text-white text-xs sm:text-sm font-bold cursor-pointer"
+                    >
+                      Browse 2026 Movies to Download
+                    </button>
+                    <button
+                      onClick={() => setActiveView('watchlist')}
+                      className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-slate-200 text-xs sm:text-sm font-semibold cursor-pointer"
+                    >
+                      View My Watchlist
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quick 1-Tap Download Recommendations */}
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-xs text-emerald-400 font-semibold">
+                      Instant Save · Popular 2026 Blockbusters
+                    </div>
+                    <h3 className="font-display text-lg sm:text-xl font-bold text-white">
+                      Recommended Movies to Download to Saved Movies
+                    </h3>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                    {movies.slice(0, 8).map((m) => renderMovieCard(m))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                {deviceDownloads
+                  .filter((item) =>
+                    savedQualityFilter === 'all'
+                      ? true
+                      : item.quality === savedQualityFilter
+                  )
+                  .filter((item) =>
+                    !savedSearchQuery.trim()
+                      ? true
+                      : item.title
+                          .toLowerCase()
+                          .includes(savedSearchQuery.trim().toLowerCase()) ||
+                        item.category
+                          .toLowerCase()
+                          .includes(savedSearchQuery.trim().toLowerCase())
+                  )
+                  .map((item) => {
+                    const matchedMovie =
+                      movies.find((m) => m.id === item.movieId) ||
+                      ({
+                        ...INITIAL_MOVIES[0],
+                        id: item.movieId,
+                        youtubeVideoId: item.youtubeVideoId,
+                        title: item.title,
+                        synopsis: `${item.category} blockbuster feature stored in your TK STORYWORLD Saved Movies page.`,
+                        thumbnailUrl: item.thumbnailUrl,
+                        backdropUrl: item.backdropUrl,
+                        primaryCategory: item.category as MovieCategory,
+                        secondaryCategories: [item.category as MovieCategory],
+                        durationFormatted: item.durationFormatted,
+                        publishedAt: item.downloadedAt,
+                      } as MovieItem);
+
+                    const savedProg = progressMap.get(item.movieId);
+                    const savedPct =
+                      savedProg && savedProg.durationSeconds > 0
+                        ? Math.min(
+                            100,
+                            Math.round(
+                              (savedProg.progressSeconds /
+                                savedProg.durationSeconds) *
+                                100
+                            )
+                          )
+                        : 0;
+
+                    return (
+                      <div
+                        key={item.movieId}
+                        className="rounded-xl overflow-hidden bg-[#0E1118] border border-emerald-500/35 flex flex-col justify-between shadow-lg hover:border-emerald-400 transition-colors"
+                      >
+                        <div
+                          onClick={() => openMovieModal(matchedMovie, true)}
+                          className="relative aspect-video bg-black cursor-pointer group overflow-hidden"
+                        >
+                          <CinemaPosterImage
+                            src={item.backdropUrl || item.thumbnailUrl}
+                            fallbackVideoId={item.youtubeVideoId}
+                            alt={item.title}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
+                          <div className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded bg-emerald-500 text-slate-950 text-[10px] font-bold uppercase tracking-wider">
+                            ✓ Saved · {item.quality} · {item.estimatedSizeMb} MB
+                          </div>
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="w-12 h-12 rounded-full bg-[#E11D48]/95 text-white flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                              <Play className="w-5 h-5 fill-current ml-0.5" />
+                            </div>
+                          </div>
+                          <div className="absolute bottom-2 right-2.5 text-[11px] font-mono text-white/90 bg-black/70 px-1.5 py-0.5 rounded">
+                            {item.durationFormatted}
+                          </div>
+                          {savedPct > 0 && (
+                            <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-white/20">
+                              <div
+                                className="h-full bg-[#E11D48]"
+                                style={{ width: `${savedPct}%` }}
+                              />
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="p-4 space-y-3 flex-1 flex flex-col justify-between">
+                          <div>
+                            <h3 className="font-display text-sm font-bold text-white line-clamp-2">
+                              {item.title}
+                            </h3>
+                            <p className="text-[11px] text-slate-400 mt-1">
+                              {item.category} · Downloaded{' '}
+                              {new Date(item.downloadedAt).toLocaleDateString()}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2 pt-1">
+                            <button
+                              onClick={() => openMovieModal(matchedMovie, true)}
+                              className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-[#E11D48] hover:bg-[#BE123C] text-white text-xs font-bold cursor-pointer"
+                            >
+                              <Play className="w-3.5 h-3.5 fill-current" />
+                              <span>
+                                {savedPct > 0 ? 'Resume Movie' : 'Watch Movie'}
+                              </span>
+                            </button>
+                            <button
+                              onClick={() => setDownloadModalMovie(matchedMovie)}
+                              className="px-2.5 py-2.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-semibold cursor-pointer"
+                              title="Download Quality & Backup Options"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                const updated = removeMovieFromDeviceVault(
+                                  item.movieId
+                                );
+                                setDeviceDownloads(updated);
+                              }}
+                              className="px-2.5 py-2.5 rounded-lg bg-white/5 hover:bg-rose-500/20 border border-white/10 text-slate-400 hover:text-rose-300 text-xs cursor-pointer"
+                              title="Remove from Saved Movies"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </section>
         ) : activeView === 'watchlist' ? (
           <section className="max-w-[1400px] mx-auto px-5 sm:px-10 py-10 space-y-8">
             <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-6 border-b border-white/10">
               <div>
                 <div className="text-xs text-slate-400">
-                  Personal Library & Device Vault · {currentUserEmail}
+                  Personal Library & Saved Movies · {currentUserEmail}
                 </div>
                 <h1 className="font-display text-2xl sm:text-3xl font-bold text-white mt-1">
-                  My Downloads, Saved Watchlist & Continue Watching
+                  My Watchlist & Continue Watching
                 </h1>
               </div>
-              <button
-                onClick={() => setActiveView('categories')}
-                className="px-4 py-2 rounded-lg border border-white/15 text-xs font-medium text-slate-200 hover:bg-white/10 whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                Explore All 12 Categories
-              </button>
+              <div className="flex items-center gap-2.5">
+                <button
+                  onClick={() => setActiveView('saved')}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-xs font-semibold text-emerald-300 whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Open Saved Movies ({deviceDownloads.length})</span>
+                </button>
+                <button
+                  onClick={() => setActiveView('categories')}
+                  className="px-4 py-2 rounded-lg border border-white/15 text-xs font-medium text-slate-200 hover:bg-white/10 whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  Explore All 12 Categories
+                </button>
+              </div>
             </div>
 
             {/* IN-APP DEVICE VAULT (DOWNLOADED ON THIS DEVICE) */}
@@ -3627,7 +3964,7 @@ export default function App() {
         />
       )}
 
-      {/* METHOD C: COMBINED IN-APP DEVICE VAULT + DIRECT .MP4 DEVICE DOWNLOADER MODAL */}
+      {/* SAVED MOVIES DOWNLOADER MODAL */}
       {downloadModalMovie && (
         <DownloadMovieModal
           movie={downloadModalMovie}
@@ -3635,6 +3972,11 @@ export default function App() {
           onPlayMovie={(mov) => {
             setDownloadModalMovie(null);
             openMovieModal(mov, true);
+          }}
+          onOpenSavedMovies={() => {
+            setDownloadModalMovie(null);
+            setActiveModalMovie(null);
+            setActiveView('saved');
           }}
           onVaultUpdated={(items) => setDeviceDownloads(items)}
         />

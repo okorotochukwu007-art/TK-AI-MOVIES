@@ -175,6 +175,7 @@ interface DownloadMovieModalProps {
   movie: MovieItem;
   onClose: () => void;
   onPlayMovie?: (movie: MovieItem) => void;
+  onOpenSavedMovies?: () => void;
   onVaultUpdated?: (items: DeviceDownloadedMovieItem[]) => void;
 }
 
@@ -182,6 +183,7 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
   movie,
   onClose,
   onPlayMovie,
+  onOpenSavedMovies,
   onVaultUpdated,
 }) => {
   const [selectedQuality, setSelectedQuality] = useState<'720p HD' | '480p Fast'>(
@@ -208,14 +210,14 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
     setVaultSaved(isMovieInDeviceVault(movie.id));
   }, [movie.id]);
 
-  // Action 1: Save to In-App Device Vault (Netflix / YouTube App Style)
+  // Primary Action: Download & Store Movie in the App's "Saved Movies" Page
   const handleSaveToVault = async () => {
     if (vaultProgress !== null) return;
     setStatusMessage(null);
-    setVaultProgress(12);
+    setVaultProgress(15);
 
-    const step1 = window.setTimeout(() => setVaultProgress(46), 260);
-    const step2 = window.setTimeout(() => setVaultProgress(82), 540);
+    const step1 = window.setTimeout(() => setVaultProgress(48), 260);
+    const step2 = window.setTimeout(() => setVaultProgress(85), 540);
 
     const updated = await saveMovieToDeviceVault(movie, selectedQuality);
 
@@ -226,7 +228,7 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
       setVaultSaved(true);
       if (onVaultUpdated) onVaultUpdated(updated);
       setStatusMessage(
-        `Saved "${movie.title}" (${selectedQuality}) to your In-App Device Vault! You can access it anytime in My Watchlist & Downloads.`
+        `Downloaded "${movie.title}" (${selectedQuality}) into your Saved Movies page on the app! You can watch it anytime from Saved Movies.`
       );
       window.setTimeout(() => setVaultProgress(null), 900);
     }, 850);
@@ -236,10 +238,10 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
     const updated = removeMovieFromDeviceVault(movie.id);
     setVaultSaved(false);
     if (onVaultUpdated) onVaultUpdated(updated);
-    setStatusMessage('Removed movie from your In-App Device Vault.');
+    setStatusMessage('Removed movie from your Saved Movies page.');
   };
 
-  // Action 2: Download File to Device (Mobile Phone or Computer Downloads Folder)
+  // Secondary Action: Also export to Phone or Computer Downloads Folder + store in Saved Movies
   const handleDownloadToDeviceFile = async () => {
     if (deviceFileProgress !== null) return;
     setStatusMessage(null);
@@ -310,7 +312,7 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
 
     setDeviceFileProgress(92);
 
-    // Also save into In-App Device Vault automatically so they have it in both places
+    // Always store into the App's Saved Movies page automatically
     const updatedVault = await saveMovieToDeviceVault(movie, selectedQuality);
     setVaultSaved(true);
     if (onVaultUpdated) onVaultUpdated(updatedVault);
@@ -334,13 +336,12 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
       document.body.removeChild(a);
       setDeviceFileProgress(100);
       setStatusMessage(
-        `Direct ${selectedQuality} .MP4 stream unlocked! Your browser is downloading "${safeFileName}.mp4" to your device.`
+        `Saved to your "Saved Movies" page on the app AND started downloading "${safeFileName}.mp4"!`
       );
       window.setTimeout(() => setDeviceFileProgress(null), 900);
       return;
     }
 
-    // 3. Guaranteed Device File Download: Generate & download the Standalone TK STORYWORLD Portable Cinema File (.html) directly into the Phone/Computer Downloads folder!
     try {
       const htmlContent = buildStandaloneCinemaPlayerHtml(
         movie,
@@ -363,7 +364,7 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
 
     setDeviceFileProgress(100);
     setStatusMessage(
-      `Downloaded "${safeFileName}_${qParam}_TK_STORYWORLD_Player.html" directly to your device's Downloads folder AND saved to your In-App Device Vault!`
+      `Saved to your "Saved Movies" page on the app AND downloaded the portable player file to your device!`
     );
     window.setTimeout(() => setDeviceFileProgress(null), 900);
   };
@@ -381,14 +382,14 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <span className="brand-luxury-red text-xs font-black uppercase">
-                TK STORYWORLD DOWNLOADER
+                TK STORYWORLD SAVED MOVIES
               </span>
               <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold">
-                Mobile &amp; Computer Ready
+                In-App Offline Vault
               </span>
             </div>
             <h2 className="font-display text-lg sm:text-xl font-bold text-white mt-1">
-              Download Movie to Your Device
+              Download Movie to Saved Movies
             </h2>
           </div>
           <button
@@ -425,7 +426,7 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
                 <>
                   <span>·</span>
                   <span className="text-emerald-400 font-sans font-bold">
-                    ✓ In Device Vault
+                    ✓ Stored in Saved Movies
                   </span>
                 </>
               )}
@@ -436,7 +437,7 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
         {/* Step 1: Select Video Quality (720p HD vs 480p Fast) */}
         <div className="space-y-2">
           <label className="block text-xs font-semibold text-slate-300">
-            1. Select Download Quality (Android, iPhone, Windows &amp; Mac)
+            1. Select Download Quality for Saved Movies
           </label>
           <div className="grid grid-cols-2 gap-2.5">
             <button
@@ -487,41 +488,51 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
 
         {/* Status / Progress Feedback */}
         {statusMessage && (
-          <div className="px-3.5 py-3 rounded-xl bg-emerald-950/50 border border-emerald-500/40 text-xs text-emerald-200 flex items-start gap-2.5">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-            <div className="flex-1 leading-relaxed">{statusMessage}</div>
+          <div className="px-3.5 py-3 rounded-xl bg-emerald-950/50 border border-emerald-500/40 text-xs text-emerald-200 space-y-2.5">
+            <div className="flex items-start gap-2.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              <div className="flex-1 leading-relaxed">{statusMessage}</div>
+            </div>
+            {vaultSaved && onOpenSavedMovies && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenSavedMovies();
+                }}
+                className="w-full py-2 px-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <HardDrive className="w-3.5 h-3.5" />
+                <span>Open Saved Movies Page Now</span>
+              </button>
+            )}
           </div>
         )}
 
-        {/* Step 2: Two Download Methods (Method C: In-App Device Vault + Direct Device File Download) */}
+        {/* Step 2: Primary In-App Saved Movies Storage + Optional Device File */}
         <div className="space-y-3">
-          <label className="block text-xs font-semibold text-slate-300">
-            2. Choose How to Save to Your Phone or Computer
-          </label>
-
-          {/* Option A: Save to In-App Device Vault */}
-          <div className="rounded-xl bg-[#07090E] border border-white/15 p-3.5 space-y-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-0.5">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-white">
-                  <Sparkles className="w-3.5 h-3.5 text-[#F59E0B]" />
-                  <span>Option A: Save to In-App Device Vault (Instant)</span>
-                </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Saves this movie inside TK STORYWORLD’s{' '}
-                  <strong className="text-slate-200">My Downloads</strong> tab on
-                  your phone or computer for instant 1-tap playback.
-                </p>
+          <div className="rounded-xl bg-[#07090E] border border-emerald-500/30 p-4 space-y-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-white">
+                <Sparkles className="w-4 h-4 text-[#F59E0B]" />
+                <span>
+                  Download &amp; Store in "Saved Movies" on the App
+                </span>
               </div>
+              <p className="text-[11px] sm:text-xs text-slate-300 leading-relaxed">
+                Stores this movie directly inside TK STORYWORLD’s{' '}
+                <strong className="text-emerald-400">Saved Movies</strong> page
+                so you can access and watch all your downloaded movies right inside the app.
+              </p>
             </div>
 
             {vaultProgress !== null && (
               <div className="space-y-1">
                 <div className="flex justify-between text-[10px] font-mono text-emerald-400">
-                  <span>Caching {selectedQuality} Cinema Package...</span>
+                  <span>Downloading {selectedQuality} to Saved Movies...</span>
                   <span>{vaultProgress}%</span>
                 </div>
-                <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+                <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
                   <div
                     className="h-full bg-gradient-to-r from-[#E11D48] to-[#F59E0B] transition-all duration-300"
                     style={{ width: `${vaultProgress}%` }}
@@ -530,25 +541,39 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
               </div>
             )}
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => void handleSaveToVault()}
                 disabled={vaultProgress !== null}
-                className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-[#E11D48] hover:bg-[#BE123C] text-white text-xs font-bold shadow-lg transition-colors cursor-pointer"
+                className="flex-1 inline-flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[#E11D48] hover:bg-[#BE123C] text-white text-xs sm:text-sm font-bold shadow-lg transition-colors cursor-pointer"
               >
                 {vaultSaved ? (
                   <>
                     <Check className="w-4 h-4" />
-                    <span>Saved in App Vault ({selectedQuality})</span>
+                    <span>Stored in Saved Movies ({selectedQuality})</span>
                   </>
                 ) : (
                   <>
-                    <HardDrive className="w-4 h-4" />
-                    <span>Save to In-App Device Vault</span>
+                    <Download className="w-4 h-4" />
+                    <span>Download to Saved Movies ({selectedQuality})</span>
                   </>
                 )}
               </button>
+
+              {vaultSaved && onOpenSavedMovies && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenSavedMovies();
+                  }}
+                  className="inline-flex items-center gap-1.5 py-3 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer shrink-0"
+                >
+                  <HardDrive className="w-3.5 h-3.5" />
+                  <span>View Saved Movies</span>
+                </button>
+              )}
 
               {vaultSaved && onPlayMovie && (
                 <button
@@ -557,7 +582,7 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
                     onClose();
                     onPlayMovie(movie);
                   }}
-                  className="inline-flex items-center gap-1.5 py-2.5 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer shrink-0"
+                  className="inline-flex items-center gap-1.5 py-3 px-3.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold cursor-pointer shrink-0"
                 >
                   <Play className="w-3.5 h-3.5 fill-current" />
                   <span>Play</span>
@@ -568,8 +593,8 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
                 <button
                   type="button"
                   onClick={handleRemoveFromVault}
-                  className="p-2.5 rounded-xl bg-white/5 hover:bg-rose-950/60 border border-white/10 text-slate-400 hover:text-rose-300 cursor-pointer"
-                  title="Remove from Device Vault"
+                  className="p-3 rounded-xl bg-white/5 hover:bg-rose-950/60 border border-white/10 text-slate-400 hover:text-rose-300 cursor-pointer"
+                  title="Remove from Saved Movies"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -577,77 +602,48 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
             </div>
           </div>
 
-          {/* Option B: Direct File Download to Phone / Computer Downloads Folder */}
-          <div className="rounded-xl bg-[#07090E] border border-white/15 p-3.5 space-y-3">
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-white">
-                <Download className="w-3.5 h-3.5 text-emerald-400" />
-                <span>
-                  Option B: Download File Directly to Phone / Computer
-                </span>
+          {/* Optional Device Export */}
+          <div className="rounded-xl bg-[#07090E] border border-white/10 p-3.5 space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[11px] text-slate-400">
+                Also save a backup player file to your Phone / Computer storage:
               </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                Downloads the {selectedQuality} movie stream / portable cinema
-                player file directly into your{' '}
-                <strong className="text-slate-200">
-                  Android, iPhone, Windows, or Mac Downloads folder
-                </strong>
-                .
-              </p>
-            </div>
-
-            {deviceFileProgress !== null && (
-              <div className="space-y-1">
-                <div className="flex justify-between text-[10px] font-mono text-[#F59E0B]">
-                  <span>Preparing {selectedQuality} Device File...</span>
-                  <span>{deviceFileProgress}%</span>
-                </div>
-                <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
-                  <div
-                    className="h-full bg-emerald-500 transition-all duration-300"
-                    style={{ width: `${deviceFileProgress}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               <button
                 type="button"
                 onClick={() => void handleDownloadToDeviceFile()}
                 disabled={deviceFileProgress !== null}
-                className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-white/10 hover:bg-white/15 border border-white/20 text-white text-xs font-bold transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-lg bg-white/10 hover:bg-white/15 border border-white/15 text-slate-200 text-[11px] font-semibold cursor-pointer shrink-0"
               >
-                <Download className="w-4 h-4 text-[#F59E0B]" />
+                <Download className="w-3.5 h-3.5 text-[#F59E0B]" />
                 <span>
                   {deviceFileProgress !== null
-                    ? 'Downloading to Device...'
-                    : `Download ${selectedQuality} to Device`}
+                    ? `Saving (${deviceFileProgress}%)...`
+                    : 'Export Backup File'}
                 </span>
               </button>
-
-              {resolvedMp4Url && (
-                <a
-                  href={resolvedMp4Url}
-                  download
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Direct .MP4 Stream</span>
-                </a>
-              )}
             </div>
+
+            {resolvedMp4Url && (
+              <a
+                href={resolvedMp4Url}
+                download
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold w-full cursor-pointer"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Open Direct .MP4 Stream</span>
+              </a>
+            )}
 
             <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5">
               <span className="inline-flex items-center gap-1">
                 <Smartphone className="w-3 h-3 text-slate-400" />
-                Android &amp; iPhone Supported
+                Android &amp; iPhone Saved Movies Vault
               </span>
               <span className="inline-flex items-center gap-1">
                 <Laptop className="w-3 h-3 text-slate-400" />
-                Windows &amp; Mac Supported
+                Windows &amp; Mac Saved Movies Vault
               </span>
             </div>
           </div>

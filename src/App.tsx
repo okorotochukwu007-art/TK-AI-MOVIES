@@ -419,6 +419,42 @@ export default function App() {
       }
 
       // Fallback when deployed as static site (Cloudflare Pages) or if /api/bootstrap was unreachable
+      // 1. Dynamic live catalogue sync directly from GitHub Raw (updates live website immediately without rebuilds)
+      try {
+        const liveRes = await fetch(
+          `https://raw.githubusercontent.com/okorotochukwu007-art/TK-AI-MOVIES/main/data/aetheria-db.json?t=${Date.now()}`
+        );
+        if (liveRes.ok) {
+          const liveData = await liveRes.json();
+          if (Array.isArray(liveData.movies) && liveData.movies.length > 0) {
+            const approvedMovies = liveData.movies.filter(
+              (m: MovieItem) => m.approvalStatus === 'approved'
+            );
+            const liveMap = new Map<string, MovieItem>();
+            for (const m of approvedMovies) {
+              liveMap.set(m.youtubeVideoId, m);
+            }
+            for (const m of INITIAL_MOVIES) {
+              if (!liveMap.has(m.youtubeVideoId)) {
+                liveMap.set(m.youtubeVideoId, m);
+              }
+            }
+            const allLive = Array.from(liveMap.values());
+            if (allLive.length >= INITIAL_MOVIES.length) {
+              setMovies(allLive);
+              if (Array.isArray(liveData.series) && liveData.series.length > 0) {
+                setSeries(liveData.series);
+              }
+              if (liveData.settings) {
+                setSettings(liveData.settings);
+              }
+            }
+          }
+        }
+      } catch (liveErr) {
+        console.warn('Dynamic live GitHub catalogue fetch fallback warning:', liveErr);
+      }
+
       const sb = await initSupabaseIfNeeded();
       if (sb) {
         const { data: dbMovies } = await sb
@@ -503,6 +539,8 @@ export default function App() {
         } else {
           setMovies([...INITIAL_MOVIES]);
         }
+      } else {
+        setMovies((prev) => (prev.length >= INITIAL_MOVIES.length ? prev : [...INITIAL_MOVIES]));
       }
     } catch (err) {
       console.error('Bootstrap fallback activated:', err);

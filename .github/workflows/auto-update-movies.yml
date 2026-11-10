@@ -1,0 +1,41 @@
+name: Auto Update Movie Catalogue
+
+on:
+  schedule:
+    # Run automatically every 6 hours
+    - cron: '0 */6 * * *'
+  # Allow manual 1-click trigger from GitHub Actions tab
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-catalogue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Dependencies
+        run: npm ci || npm install
+
+      - name: Run Auto Discovery & Movie Sync
+        run: npx tsx scripts/autoSyncMovies.ts
+
+      - name: Commit and Push if Changed
+        run: |
+          git config --global user.name "TK Cinema Bot"
+          git config --global user.email "okorotochukwu007@gmail.com"
+          git add data/aetheria-db.json
+          if ! git diff --staged --quiet; then
+            git commit -m "chore(catalogue): auto-update movies catalogue [skip ci]"
+            git push origin main
+          else
+            echo "Catalogue is up to date, no changes to commit."
+          fi

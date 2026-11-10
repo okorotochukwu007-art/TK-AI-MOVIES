@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
+    "sync:movies": "tsx scripts/autoSyncMovies.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

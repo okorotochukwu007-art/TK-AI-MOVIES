@@ -268,77 +268,86 @@ app.post('/api/movies/:id/playback-status', async (req, res) => {
 
 app.post('/api/movies/:id/resolve-mp4', async (req, res) => {
   try {
-    const { youtubeVideoId, quality = '720p' } = req.body;
+    const { youtubeVideoId, quality = '1080p' } = req.body;
     const vid = String(youtubeVideoId || '').trim();
     if (!vid || !/^[a-zA-Z0-9_-]{11}$/.test(vid)) {
       return res.status(400).json({ error: 'Valid youtubeVideoId is required' });
     }
 
-    const pipedEndpoints = [
+    const streamSources = [
+      `https://invidious.nerdvpn.de/api/v1/videos/${vid}`,
+      `https://inv.tux.pizza/api/v1/videos/${vid}`,
+      `https://yt.chocolatemoo53.com/api/v1/videos/${vid}`,
       `https://pipedapi.kavin.rocks/streams/${vid}`,
       `https://pipedapi.tokhmi.xyz/streams/${vid}`,
       `https://pipedapi.moomoo.me/streams/${vid}`,
     ];
 
-    for (const endpoint of pipedEndpoints) {
+    for (const endpoint of streamSources) {
       try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3000);
-        const r = await fetch(endpoint, { signal: controller.signal });
+        const timeout = setTimeout(() => controller.abort(), 2800);
+        const r = await fetch(endpoint, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+          },
+        });
         clearTimeout(timeout);
         if (!r.ok) continue;
         const data = (await r.json()) as any;
-        const streams: any[] = Array.isArray(data?.videoStreams)
-          ? data.videoStreams.filter((s: any) => s.videoOnly === false && s.url)
-          : [];
-        if (streams.length > 0) {
-          const preferred =
-            streams.find((s) =>
-              quality === '720p'
-                ? String(s.quality).includes('720')
-                : String(s.quality).includes('360') ||
-                  String(s.quality).includes('480')
-            ) || streams[0];
-          return res.json({
-            resolved: true,
-            directMp4Url: preferred.url,
-            quality: preferred.quality || quality,
-          });
+
+        // Check formatStreams (Invidious format)
+        if (Array.isArray(data?.formatStreams) && data.formatStreams.length > 0) {
+          const valid = data.formatStreams.filter(
+            (s: any) => s.url && typeof s.url === 'string'
+          );
+          if (valid.length > 0) {
+            const preferred =
+              valid.find((s: any) =>
+                quality.includes('1080')
+                  ? String(s.qualityLabel).includes('1080')
+                  : quality.includes('720')
+                  ? String(s.qualityLabel).includes('720')
+                  : String(s.qualityLabel).includes('480') ||
+                    String(s.qualityLabel).includes('360')
+              ) ||
+              valid.find((s: any) => String(s.qualityLabel).includes('720')) ||
+              valid[0];
+
+            return res.json({
+              resolved: true,
+              directMp4Url: preferred.url,
+              quality: preferred.qualityLabel || quality,
+            });
+          }
         }
-      } catch {
-        // try next mirror
-      }
-    }
 
-    const invidiousEndpoints = [
-      `https://inv.tux.pizza/api/v1/videos/${vid}`,
-      `https://invidious.nerdvpn.de/api/v1/videos/${vid}`,
-    ];
+        // Check videoStreams (Piped format)
+        if (Array.isArray(data?.videoStreams) && data.videoStreams.length > 0) {
+          const valid = data.videoStreams.filter(
+            (s: any) => s.videoOnly === false && s.url
+          );
+          if (valid.length > 0) {
+            const preferred =
+              valid.find((s: any) =>
+                quality.includes('1080')
+                  ? String(s.quality).includes('1080')
+                  : quality.includes('720')
+                  ? String(s.quality).includes('720')
+                  : String(s.quality).includes('480') ||
+                    String(s.quality).includes('360')
+              ) ||
+              valid.find((s: any) => String(s.quality).includes('720')) ||
+              valid[0];
 
-    for (const endpoint of invidiousEndpoints) {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3000);
-        const r = await fetch(endpoint, { signal: controller.signal });
-        clearTimeout(timeout);
-        if (!r.ok) continue;
-        const data = (await r.json()) as any;
-        const streams: any[] = Array.isArray(data?.formatStreams)
-          ? data.formatStreams.filter((s: any) => s.url)
-          : [];
-        if (streams.length > 0) {
-          const preferred =
-            streams.find((s) =>
-              quality === '720p'
-                ? String(s.qualityLabel).includes('720')
-                : String(s.qualityLabel).includes('360') ||
-                  String(s.qualityLabel).includes('480')
-            ) || streams[0];
-          return res.json({
-            resolved: true,
-            directMp4Url: preferred.url,
-            quality: preferred.qualityLabel || quality,
-          });
+            return res.json({
+              resolved: true,
+              directMp4Url: preferred.url,
+              quality: preferred.quality || quality,
+            });
+          }
         }
       } catch {
         // try next mirror

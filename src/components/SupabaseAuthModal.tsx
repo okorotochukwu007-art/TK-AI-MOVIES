@@ -443,8 +443,7 @@ export const SupabaseAuthModal: React.FC<SupabaseAuthModalProps> = ({
 
       saveLocalAccountAndSession(cleanEmail, password);
       void notifyBackendAuthEvent(cleanEmail, 'signup');
-      setConfirmedSignupEmail(cleanEmail);
-      setView('signup_email_sent');
+      onAuthSuccess(cleanEmail);
     } catch (err: any) {
       setMessage({
         type: 'error',

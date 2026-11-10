@@ -239,7 +239,7 @@ export default function App() {
     DeviceDownloadedMovieItem[]
   >(() => getDeviceDownloadedMovies());
   const [savedQualityFilter, setSavedQualityFilter] = useState<
-    'all' | '720p HD' | '480p Fast'
+    'all' | '1080p FHD' | '720p HD' | '480p Fast'
   >('all');
   const [savedSearchQuery, setSavedSearchQuery] = useState('');
   const [sharedInviteMovie, setSharedInviteMovie] = useState<MovieItem | null>(
@@ -2088,7 +2088,7 @@ export default function App() {
               {deviceDownloads.length > 0 && (
                 <div className="pt-4 border-t border-white/10 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
                   <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-                    {(['all', '720p HD', '480p Fast'] as const).map((qFilter) => (
+                    {(['all', '1080p FHD', '720p HD', '480p Fast'] as const).map((qFilter) => (
                       <button
                         key={qFilter}
                         onClick={() => setSavedQualityFilter(qFilter)}
@@ -4052,11 +4052,11 @@ export default function App() {
               setLocalUserEmail(signedInEmail.trim().toLowerCase());
             }
             setShowSearchAndAccountModal(false);
+            setPendingMovieAfterAuth(null);
+            setActiveModalMovie(null);
+            setActiveView('home');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
             void loadBootstrapData();
-            if (pendingMovieAfterAuth) {
-              setActiveModalMovie(pendingMovieAfterAuth);
-              setPendingMovieAfterAuth(null);
-            }
           }}
           onSignOut={() => {
             setLocalUserEmail(null);

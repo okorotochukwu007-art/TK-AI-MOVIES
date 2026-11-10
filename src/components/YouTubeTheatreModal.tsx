@@ -284,14 +284,14 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
 
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [playerServer, setPlayerServer] = useState<'standard' | 'nocookie'>('nocookie');
-  const [streamQuality, setStreamQuality] = useState<'hd720' | 'large' | 'hd1080'>('hd720');
+  const [streamQuality, setStreamQuality] = useState<'hd1080' | 'hd1440' | 'highres' | 'hd720' | 'large'>('hd1080');
   const [isStreamSettled, setIsStreamSettled] = useState(false);
   const [startOffsetSec, setStartOffsetSec] = useState<number>(() =>
     resumeSeconds > 15 ? Math.floor(resumeSeconds) : 0
   );
 
   const applyLiveStreamQuality = React.useCallback(
-    (targetQuality: 'hd720' | 'large' | 'hd1080') => {
+    (targetQuality: 'hd1080' | 'hd1440' | 'highres' | 'hd720' | 'large') => {
       const win = iframeRef.current?.contentWindow;
       if (!win) return;
       try {
@@ -299,8 +299,10 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
           targetQuality === 'large'
             ? ['small', 'large']
             : targetQuality === 'hd720'
-            ? ['medium', 'hd720']
-            : ['hd720', 'hd1080'];
+            ? ['large', 'hd720']
+            : targetQuality === 'hd1080'
+            ? ['hd720', 'hd1080']
+            : ['hd1080', 'highres'];
         win.postMessage(
           JSON.stringify({
             event: 'command',
@@ -344,15 +346,30 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
     []
   );
 
+  const [userExplicitlyPaused, setUserExplicitlyPaused] = useState(false);
+  const latestTimestampRef = useRef<number>(resumeSeconds);
+  const latestDurationRef = useRef<number>(movie.durationSeconds || 5400);
+  const onProgressUpdateRef = useRef(onProgressUpdate);
+  useEffect(() => {
+    onProgressUpdateRef.current = onProgressUpdate;
+  }, [onProgressUpdate]);
+
   const toggleNativePlayPause = React.useCallback(() => {
     if (playerPlaying) {
       sendPlayerCommand('pauseVideo');
       setPlayerPlaying(false);
+      setUserExplicitlyPaused(true);
+      onProgressUpdateRef.current(
+        movie.id,
+        Math.floor(latestTimestampRef.current),
+        latestDurationRef.current
+      );
     } else {
       sendPlayerCommand('playVideo');
       setPlayerPlaying(true);
+      setUserExplicitlyPaused(false);
     }
-  }, [playerPlaying, sendPlayerCommand]);
+  }, [playerPlaying, sendPlayerCommand, movie.id]);
 
   const toggleNativeMute = React.useCallback(() => {
     if (isMuted) {
@@ -371,14 +388,15 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
         Math.max(0, Math.floor(currentTimestamp + deltaSec))
       );
       setCurrentTimestamp(nextSec);
+      latestTimestampRef.current = nextSec;
       sendPlayerCommand('seekTo', [nextSec, true]);
+      setUserExplicitlyPaused(false);
       if (!playerPlaying) {
         sendPlayerCommand('playVideo');
         setPlayerPlaying(true);
       }
-      onProgressUpdate(movie.id, nextSec, totalDuration);
     },
-    [currentTimestamp, totalDuration, playerPlaying, sendPlayerCommand, movie.id, onProgressUpdate]
+    [currentTimestamp, totalDuration, playerPlaying, sendPlayerCommand]
   );
 
   const [isScrubbing, setIsScrubbing] = useState(false);
@@ -391,32 +409,45 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
         Math.max(0, Math.floor(targetSec))
       );
       setCurrentTimestamp(clamped);
+      latestTimestampRef.current = clamped;
       sendPlayerCommand('seekTo', [clamped, true]);
+      setUserExplicitlyPaused(false);
       if (!playerPlaying) {
         sendPlayerCommand('playVideo');
         setPlayerPlaying(true);
       }
-      onProgressUpdate(movie.id, clamped, totalDuration);
     },
-    [totalDuration, playerPlaying, sendPlayerCommand, movie.id, onProgressUpdate]
+    [totalDuration, playerPlaying, sendPlayerCommand]
   );
 
-  // Smooth 1-second progress ticker while movie is playing + periodic progress persistence
+  // Smooth local progress ticker while movie is playing (Zero parent App.tsx re-renders while watching!)
   useEffect(() => {
     if (!playerPlaying || isScrubbing) return;
     const interval = window.setInterval(() => {
       setCurrentTimestamp((prev) => {
         const next = Math.min(totalDuration, prev + 1);
-        if (Math.floor(next) % 10 === 0) {
-          onProgressUpdate(movie.id, Math.floor(next), totalDuration);
-        }
+        latestTimestampRef.current = next;
         return next;
       });
     }, 1000);
     return () => window.clearInterval(interval);
-  }, [playerPlaying, isScrubbing, totalDuration, movie.id, onProgressUpdate]);
+  }, [playerPlaying, isScrubbing, totalDuration]);
 
-  // Listen to YouTube IFrame API postMessage events and lock stream into hardware-accelerated 480p/720p H.264/VP9 range so 4K/AV1 never cracks audio
+  // Save watch progress cleanly when closing the player or switching movies (never mid-stream)
+  useEffect(() => {
+    const targetMovieId = movie.id;
+    return () => {
+      if (latestTimestampRef.current > 5) {
+        onProgressUpdateRef.current(
+          targetMovieId,
+          Math.floor(latestTimestampRef.current),
+          latestDurationRef.current
+        );
+      }
+    };
+  }, [movie.id]);
+
+  // Listen to YouTube IFrame API postMessage events for time & duration sync without flooding quality commands
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (
@@ -434,16 +465,19 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
             !isScrubbing
           ) {
             setCurrentTimestamp(payload.info.currentTime);
+            latestTimestampRef.current = payload.info.currentTime;
           }
           if (
             typeof payload.info.duration === 'number' &&
             payload.info.duration > 0
           ) {
             setTotalDuration(payload.info.duration);
+            latestDurationRef.current = payload.info.duration;
           }
           if (typeof payload.info.playerState === 'number') {
             if (payload.info.playerState === 1) {
               setPlayerPlaying(true);
+              setUserExplicitlyPaused(false);
             } else if (payload.info.playerState === 2) {
               setPlayerPlaying(false);
             } else if (payload.info.playerState === 0 && nextBingeMovie) {
@@ -451,11 +485,7 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
             }
           }
         }
-        if (
-          payload?.event === 'onReady' ||
-          payload?.event === 'onStateChange' ||
-          payload?.event === 'infoDelivery'
-        ) {
+        if (payload?.event === 'onReady') {
           applyLiveStreamQuality(streamQuality);
         }
       } catch {
@@ -466,20 +496,26 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
     return () => window.removeEventListener('message', handleMessage);
   }, [applyLiveStreamQuality, streamQuality, nextBingeMovie, isScrubbing]);
 
+  // Only initialize startOffsetSec when movie.id actually changes so embedSrcUrl NEVER reloads during playback!
   useEffect(() => {
     setHasStarted(true);
     setPlayerPlaying(true);
+    setUserExplicitlyPaused(false);
     setIsStreamSettled(false);
     setCurrentTimestamp(resumeSeconds);
+    latestTimestampRef.current = resumeSeconds;
     setStartOffsetSec(resumeSeconds > 15 ? Math.floor(resumeSeconds) : 0);
-    setTotalDuration(movie.durationSeconds || 5400);
+    const dur = movie.durationSeconds || 5400;
+    setTotalDuration(dur);
+    latestDurationRef.current = dur;
     setSelectedSeason(movie.seasonNumber || 1);
     setStreamError(null);
     const settleTimer = window.setTimeout(() => {
       setIsStreamSettled(true);
     }, 1600);
     return () => window.clearTimeout(settleTimer);
-  }, [movie.id, movie.youtubeVideoId, initialAutoPlay, movie.durationSeconds, movie.seasonNumber, resumeSeconds]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [movie.id, movie.youtubeVideoId]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -711,7 +747,7 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
               onLoad={handleIframeLoad}
               title={movie.title}
               loading="eager"
-              className="absolute inset-x-0 -top-[60px] w-full h-[calc(100%+120px)] border-0 block bg-black"
+              className="absolute inset-x-0 -top-[60px] w-full h-[calc(100%+120px)] border-0 block bg-black [image-rendering:-webkit-optimize-contrast] contrast-[1.03] saturate-[1.04] filter"
               referrerPolicy="strict-origin-when-cross-origin"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen; web-share"
               allowFullScreen
@@ -719,7 +755,7 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
           </div>
 
           {/* Native TK STORYWORLD Paused Cinema Shield — Hides YouTube's pause-screen banners when paused */}
-          {!playerPlaying && bingeCountdown === null && (
+          {userExplicitlyPaused && bingeCountdown === null && (
             <div
               onClick={toggleNativePlayPause}
               className="absolute inset-0 z-[15] bg-black/80 flex flex-col items-center justify-center p-4 text-center cursor-pointer select-none"
@@ -968,23 +1004,27 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
                   <button
                     onClick={() => {
                       const nextQ =
-                        streamQuality === 'hd720'
+                        streamQuality === 'hd1080'
+                          ? 'highres'
+                          : streamQuality === 'highres'
+                          ? 'hd720'
+                          : streamQuality === 'hd720'
                           ? 'large'
-                          : streamQuality === 'large'
-                          ? 'hd1080'
-                          : 'hd720';
+                          : 'hd1080';
                       setStreamQuality(nextQ);
                       applyLiveStreamQuality(nextQ);
                     }}
-                    className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[9.5px] sm:text-[10px] font-semibold cursor-pointer whitespace-nowrap"
-                    title="Live Audio/Video Anti-Crack Stream Stabilizer (Changes Quality Without Reloading)"
+                    className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[9.5px] sm:text-[10px] font-semibold cursor-pointer whitespace-nowrap transition-colors"
+                    title="Change Playback Resolution (Ultra 4K / 1080p Full HD / 720p HD)"
                   >
                     <span>
-                      {streamQuality === 'hd720'
-                        ? '⚡ 720p'
-                        : streamQuality === 'large'
-                        ? '🛡️ 480p'
-                        : '🎬 1080p'}
+                      {streamQuality === 'highres'
+                        ? '✨ 4K Ultra'
+                        : streamQuality === 'hd1080'
+                        ? '💎 1080p FHD'
+                        : streamQuality === 'hd720'
+                        ? '⚡ 720p HD'
+                        : '🛡️ 480p Saver'}
                     </span>
                   </button>
                 </div>

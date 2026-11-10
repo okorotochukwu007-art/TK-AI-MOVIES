@@ -23,7 +23,7 @@ export interface DeviceDownloadedMovieItem {
   durationFormatted: string;
   thumbnailUrl: string;
   backdropUrl: string;
-  quality: '720p HD' | '480p Fast';
+  quality: '1080p FHD' | '720p HD' | '480p Fast';
   estimatedSizeMb: number;
   downloadedAt: string;
 }
@@ -48,11 +48,13 @@ export function isMovieInDeviceVault(movieId: string): boolean {
 
 export async function saveMovieToDeviceVault(
   movie: MovieItem,
-  quality: '720p HD' | '480p Fast'
+  quality: '1080p FHD' | '720p HD' | '480p Fast'
 ): Promise<DeviceDownloadedMovieItem[]> {
   const durationMin = Math.max(45, Math.round((movie.durationSeconds || 5400) / 60));
   const estimatedSizeMb =
-    quality === '720p HD'
+    quality === '1080p FHD'
+      ? Math.round(durationMin * 8.5)
+      : quality === '720p HD'
       ? Math.round(durationMin * 4.8)
       : Math.round(durationMin * 2.2);
 
@@ -114,9 +116,9 @@ export function removeMovieFromDeviceVault(
 
 function buildStandaloneCinemaPlayerHtml(
   movie: MovieItem,
-  quality: '720p HD' | '480p Fast'
+  quality: '1080p FHD' | '720p HD' | '480p Fast'
 ): string {
-  const vq = quality === '720p HD' ? 'hd720' : 'large';
+  const vq = quality === '1080p FHD' ? 'hd1080' : quality === '720p HD' ? 'hd720' : 'large';
   const safeTitle = movie.title.replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const safeSynopsis = (movie.synopsis || '')
     .replace(/</g, '&lt;')
@@ -186,8 +188,8 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
   onOpenSavedMovies,
   onVaultUpdated,
 }) => {
-  const [selectedQuality, setSelectedQuality] = useState<'720p HD' | '480p Fast'>(
-    '720p HD'
+  const [selectedQuality, setSelectedQuality] = useState<'1080p FHD' | '720p HD' | '480p Fast'>(
+    '1080p FHD'
   );
   const [vaultSaved, setVaultSaved] = useState<boolean>(() =>
     isMovieInDeviceVault(movie.id)
@@ -203,6 +205,7 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
     45,
     Math.round((movie.durationSeconds || 5400) / 60)
   );
+  const fhdSizeMb = Math.round(durationMin * 8.5);
   const hdSizeMb = Math.round(durationMin * 4.8);
   const fastSizeMb = Math.round(durationMin * 2.2);
 
@@ -247,7 +250,12 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
     setStatusMessage(null);
     setDeviceFileProgress(18);
 
-    const qParam = selectedQuality === '720p HD' ? '720p' : '480p';
+    const qParam =
+      selectedQuality === '1080p FHD'
+        ? '1080p'
+        : selectedQuality === '720p HD'
+        ? '720p'
+        : '480p';
     let directStreamUrl: string | null = null;
 
     // 1. Try server-side MP4 resolver endpoint first
@@ -434,53 +442,69 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
           </div>
         </div>
 
-        {/* Step 1: Select Video Quality (720p HD vs 480p Fast) */}
+        {/* Step 1: Select Video Quality (1080p FHD vs 720p HD vs 480p Fast) */}
         <div className="space-y-2">
           <label className="block text-xs font-semibold text-slate-300">
-            1. Select Download Quality for Saved Movies
+            1. Select Video Quality & Bitrate
           </label>
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => setSelectedQuality('1080p FHD')}
+              className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                selectedQuality === '1080p FHD'
+                  ? 'bg-[#1A0D18] border-[#E11D48] ring-1 ring-[#E11D48]'
+                  : 'bg-[#07090E] border-white/10 hover:border-white/25'
+              }`}
+            >
+              <div className="font-display text-xs font-bold text-white truncate">
+                💎 1080p FHD
+              </div>
+              <div className="font-mono text-[10px] text-[#F59E0B] font-bold mt-0.5">
+                ~{fhdSizeMb} MB
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5 truncate">
+                Maximum detail
+              </div>
+            </button>
+
             <button
               type="button"
               onClick={() => setSelectedQuality('720p HD')}
-              className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+              className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
                 selectedQuality === '720p HD'
                   ? 'bg-[#1A0D18] border-[#E11D48] ring-1 ring-[#E11D48]'
                   : 'bg-[#07090E] border-white/10 hover:border-white/25'
               }`}
             >
-              <div className="flex items-center justify-between">
-                <span className="font-display text-xs sm:text-sm font-bold text-white">
-                  🎬 720p Full HD
-                </span>
-                <span className="font-mono text-[11px] text-[#F59E0B] font-bold">
-                  ~{hdSizeMb} MB
-                </span>
+              <div className="font-display text-xs font-bold text-white truncate">
+                🎬 720p HD
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">
-                Crystal-clear widescreen cinema quality
+              <div className="font-mono text-[10px] text-emerald-400 font-bold mt-0.5">
+                ~{hdSizeMb} MB
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5 truncate">
+                Crisp cinema
               </div>
             </button>
 
             <button
               type="button"
               onClick={() => setSelectedQuality('480p Fast')}
-              className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+              className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
                 selectedQuality === '480p Fast'
                   ? 'bg-[#1A0D18] border-[#E11D48] ring-1 ring-[#E11D48]'
                   : 'bg-[#07090E] border-white/10 hover:border-white/25'
               }`}
             >
-              <div className="flex items-center justify-between">
-                <span className="font-display text-xs sm:text-sm font-bold text-white">
-                  ⚡ 480p Fast Saver
-                </span>
-                <span className="font-mono text-[11px] text-emerald-400 font-bold">
-                  ~{fastSizeMb} MB
-                </span>
+              <div className="font-display text-xs font-bold text-white truncate">
+                ⚡ 480p Saver
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">
-                Uses 50% less mobile data · Fast save
+              <div className="font-mono text-[10px] text-slate-300 font-bold mt-0.5">
+                ~{fastSizeMb} MB
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5 truncate">
+                Data saver
               </div>
             </button>
           </div>

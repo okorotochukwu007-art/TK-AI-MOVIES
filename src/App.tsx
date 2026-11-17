@@ -13,6 +13,8 @@ import {
   Clock,
   Download,
   Film,
+  FolderOpen,
+  HardDrive,
   Heart,
   Info,
   Layers,
@@ -26,6 +28,7 @@ import {
   Sparkles,
   Trash2,
   User,
+  WifiOff,
   X,
 } from 'lucide-react';
 import { AdminDashboard } from './components/AdminDashboard.tsx';
@@ -46,6 +49,7 @@ import {
   PWAInstallBanner,
   PWAInstallModal,
 } from './components/PWAInstallModal.tsx';
+import { OfflineCinemaPlayerModal } from './components/OfflineCinemaPlayerModal.tsx';
 import { ShareMovieModal } from './components/ShareMovieModal.tsx';
 import { SupabaseAuthModal } from './components/SupabaseAuthModal.tsx';
 import { YouTubeTheatreModal } from './components/YouTubeTheatreModal.tsx';
@@ -247,6 +251,16 @@ export default function App() {
   );
   const handledDeepLinkRef = useRef<string | null>(null);
   const savedScrollYRef = useRef<number>(0);
+
+  // 100% Offline Zero-Data Native Cinema Player State
+  const [offlinePlayerMovie, setOfflinePlayerMovie] = useState<MovieItem | null>(null);
+  const [offlineInitialFile, setOfflineInitialFile] = useState<File | null>(null);
+  const generalOfflineFileInputRef = useRef<HTMLInputElement>(null);
+
+  const openOfflinePlayer = useCallback((movie: MovieItem, file?: File | null) => {
+    setOfflinePlayerMovie(movie);
+    setOfflineInitialFile(file || null);
+  }, []);
 
   // Notification Bell (New Releases in Last 48h & Coming Soon) State
   const [showNotifications, setShowNotifications] = useState(false);
@@ -1298,7 +1312,7 @@ export default function App() {
     return (
       <div
         key={movie.id}
-        onClick={() => openMovieModal(movie, false)}
+        onClick={() => openMovieModal(movie, true)}
         className={`group relative rounded-xl bg-[#0E1118] border border-white/10 hover:border-white/25 overflow-hidden transition-transform duration-150 hover:-translate-y-1 cursor-pointer flex flex-col ${
           isHorizontalMobile
             ? 'w-[78vw] max-w-[290px] sm:w-auto sm:max-w-none shrink-0 snap-start'
@@ -2122,6 +2136,58 @@ export default function App() {
                 </div>
               </div>
 
+              {/* ZERO-DATA OFFLINE CINEMA ACTION BANNER */}
+              <div className="rounded-xl bg-gradient-to-r from-emerald-950/80 via-[#0B1512] to-slate-900 border border-emerald-500/40 p-4 sm:p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shrink-0 shadow-lg">
+                    <WifiOff className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+                        100% Offline Cinema · Zero Data Used
+                      </span>
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    </div>
+                    <div className="text-sm sm:text-base font-bold text-white">
+                      Play Any Downloaded Movie on This Device Without Internet
+                    </div>
+                    <p className="text-xs text-slate-300 max-w-xl">
+                      Turn off mobile data or turn on Airplane Mode. Open your downloaded movie file to play inside the TK STORYWORLD luxury cinema player with zero data, custom progress scrubber, and no YouTube ads.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2.5 w-full md:w-auto shrink-0">
+                  <button
+                    onClick={() => generalOfflineFileInputRef.current?.click()}
+                    className="flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white text-xs sm:text-sm font-bold shadow-xl shadow-emerald-500/20 transition-all transform hover:scale-[1.02] cursor-pointer"
+                  >
+                    <FolderOpen className="w-4 h-4" />
+                    <span>Play Device Video (0 Data)</span>
+                  </button>
+                  <input
+                    ref={generalOfflineFileInputRef}
+                    type="file"
+                    accept="video/mp4,video/x-m4v,video/webm,video/mkv,video/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const baseMovie = movies[0] || INITIAL_MOVIES[0];
+                        const customMovie: MovieItem = {
+                          ...baseMovie,
+                          id: `local-file-${Date.now()}`,
+                          title: file.name.replace(/\.[^/.]+$/, ''),
+                          synopsis: 'Local downloaded video file playing offline on your device in TK STORYWORLD with zero data consumed.',
+                        };
+                        openOfflinePlayer(customMovie, file);
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+
               {/* Filter & Search Bar inside Saved Movies */}
               {deviceDownloads.length > 0 && (
                 <div className="pt-4 border-t border-white/10 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
@@ -2312,35 +2378,46 @@ export default function App() {
                             </p>
                           </div>
 
-                          <div className="flex items-center gap-2 pt-1">
+                          <div className="flex flex-col gap-2 pt-1">
+                            {/* Primary 100% Offline Zero-Data Play Button */}
                             <button
-                              onClick={() => openMovieModal(matchedMovie, true)}
-                              className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-[#E11D48] hover:bg-[#BE123C] text-white text-xs font-bold cursor-pointer"
+                              onClick={() => openOfflinePlayer(matchedMovie)}
+                              className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-md shadow-emerald-950 transition-all cursor-pointer"
+                              title="Play completely offline on this device with zero data"
                             >
-                              <Play className="w-3.5 h-3.5 fill-current" />
-                              <span>
-                                {savedPct > 0 ? 'Resume Movie' : 'Watch Movie'}
-                              </span>
+                              <WifiOff className="w-3.5 h-3.5" />
+                              <span>Play Offline (0 Data)</span>
                             </button>
-                            <button
-                              onClick={() => setDownloadModalMovie(matchedMovie)}
-                              className="px-2.5 py-2.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-semibold cursor-pointer"
-                              title="Download Quality & Backup Options"
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => {
-                                const updated = removeMovieFromDeviceVault(
-                                  item.movieId
-                                );
-                                setDeviceDownloads(updated);
-                              }}
-                              className="px-2.5 py-2.5 rounded-lg bg-white/5 hover:bg-rose-500/20 border border-white/10 text-slate-400 hover:text-rose-300 text-xs cursor-pointer"
-                              title="Remove from Saved Movies"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => openMovieModal(matchedMovie, true)}
+                                className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold cursor-pointer border border-white/10"
+                                title="Stream using Internet"
+                              >
+                                <Play className="w-3 h-3 fill-current text-rose-500" />
+                                <span>Stream Online</span>
+                              </button>
+                              <button
+                                onClick={() => setDownloadModalMovie(matchedMovie)}
+                                className="px-2.5 py-2 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-semibold cursor-pointer"
+                                title="Download Quality & Backup Options"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  const updated = removeMovieFromDeviceVault(
+                                    item.movieId
+                                  );
+                                  setDeviceDownloads(updated);
+                                }}
+                                className="px-2.5 py-2 rounded-lg bg-white/5 hover:bg-rose-500/20 border border-white/10 text-slate-400 hover:text-rose-300 text-xs cursor-pointer"
+                                title="Remove from Saved Movies"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -3999,6 +4076,23 @@ export default function App() {
           onPlaybackError={handlePlaybackError}
           onEngagementChanged={() => void loadBootstrapData()}
           onOpenDownload={(mov) => setDownloadModalMovie(mov)}
+          onOpenOfflinePlayer={(mov) => {
+            setActiveModalMovie(null);
+            openOfflinePlayer(mov);
+          }}
+        />
+      )}
+
+      {/* 100% OFFLINE ZERO-DATA CINEMA PLAYER MODAL */}
+      {offlinePlayerMovie && (
+        <OfflineCinemaPlayerModal
+          movie={offlinePlayerMovie}
+          initialFile={offlineInitialFile}
+          onClose={() => {
+            setOfflinePlayerMovie(null);
+            setOfflineInitialFile(null);
+          }}
+          onOpenDownloadModal={(mov) => setDownloadModalMovie(mov)}
         />
       )}
 

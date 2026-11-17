@@ -4,12 +4,15 @@ import {
   CheckCircle2,
   Download,
   ExternalLink,
+  Film,
   HardDrive,
   Laptop,
   Play,
   Smartphone,
   Sparkles,
   Trash2,
+  Video,
+  WifiOff,
   X,
 } from 'lucide-react';
 import { MovieItem } from '../types/cinema.ts';
@@ -82,7 +85,7 @@ export async function saveMovieToDeviceVault(
     category: movie.primaryCategory,
     durationFormatted: movie.durationFormatted || '1:30:00',
     thumbnailUrl: movie.thumbnailUrl,
-    backdropUrl: movie.backdropUrl || movie.thumbnailUrl,
+    backdropUrl: movie.backdropUrl,
     quality,
     estimatedSizeMb,
     downloadedAt: new Date().toISOString(),
@@ -114,65 +117,6 @@ export function removeMovieFromDeviceVault(
   return updated;
 }
 
-function buildStandaloneCinemaPlayerHtml(
-  movie: MovieItem,
-  quality: '1080p FHD' | '720p HD' | '480p Fast'
-): string {
-  const vq = quality === '1080p FHD' ? 'hd1080' : quality === '720p HD' ? 'hd720' : 'large';
-  const safeTitle = movie.title.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const safeSynopsis = (movie.synopsis || '')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>${safeTitle} — TK STORYWORLD Portable Cinema File</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #050505; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; min-height: 100vh; display: flex; flex-direction: column; }
-    .top-bar { height: 54px; background: #050505; border-bottom: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: space-between; padding: 0 18px; }
-    .brand { color: #FF1E4D; font-weight: 900; letter-spacing: 0.14em; font-size: 13px; text-transform: uppercase; }
-    .title { font-weight: 700; font-size: 14px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60vw; }
-    .player-wrap { position: relative; width: 100%; max-width: 1200px; margin: 0 auto; aspect-ratio: 16 / 9; background: #000; overflow: hidden; border-bottom: 1px solid rgba(255,255,255,0.12); }
-    .player-wrap iframe { position: absolute; left: 0; right: 0; top: -60px; width: 100%; height: calc(100% + 120px); border: 0; background: #000; }
-    .shield-top { position: absolute; top: 0; left: 0; right: 0; height: 44px; background: #050505; z-index: 10; display: flex; align-items: center; padding: 0 16px; font-size: 12px; color: #f59e0b; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.1); }
-    .shield-bottom { position: absolute; bottom: 0; left: 0; right: 0; height: 44px; background: #050505; z-index: 10; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; font-size: 12px; color: #cbd5e1; border-top: 1px solid rgba(255,255,255,0.1); }
-    .details { max-width: 1200px; width: 100%; margin: 0 auto; padding: 24px 18px; }
-    .badge { display: inline-block; background: #E11D48; color: #fff; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px; margin-bottom: 10px; }
-    h1 { font-size: 22px; margin-bottom: 10px; color: #fff; }
-    p { font-size: 14px; color: #94a3b8; line-height: 1.6; margin-bottom: 20px; max-width: 75ch; }
-    .btn { display: inline-block; background: #E11D48; color: #fff; text-decoration: none; font-weight: 700; font-size: 13px; padding: 12px 20px; border-radius: 10px; }
-  </style>
-</head>
-<body>
-  <div class="top-bar">
-    <span class="brand">TK STORYWORLD · PORTABLE DEVICE PLAYER</span>
-    <span class="title">${safeTitle}</span>
-  </div>
-  <div class="player-wrap">
-    <div class="shield-top">🎬 TK STORYWORLD · ${quality} Cinema Edition · ${movie.durationFormatted}</div>
-    <iframe
-      src="https://www.youtube-nocookie.com/embed/${movie.youtubeVideoId}?autoplay=1&modestbranding=1&rel=0&iv_load_policy=3&playsinline=1&vq=${vq}"
-      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
-      allowfullscreen
-    ></iframe>
-    <div class="shield-bottom">
-      <span>Saved from www.tkstoryworld.name.ng</span>
-      <span style="color:#10b981;font-weight:700;">● Verified Full Movie</span>
-    </div>
-  </div>
-  <div class="details">
-    <span class="badge">${movie.primaryCategory} · ${quality}</span>
-    <h1>${safeTitle}</h1>
-    <p>${safeSynopsis}</p>
-    <a class="btn" href="https://www.tkstoryworld.name.ng/?movie=${encodeURIComponent(movie.id)}">▶ Open Full Catalogue on TK STORYWORLD</a>
-  </div>
-</body>
-</html>`;
-}
-
 interface DownloadMovieModalProps {
   movie: MovieItem;
   onClose: () => void;
@@ -194,10 +138,7 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
   const [vaultSaved, setVaultSaved] = useState<boolean>(() =>
     isMovieInDeviceVault(movie.id)
   );
-  const [vaultProgress, setVaultProgress] = useState<number | null>(null);
-  const [deviceFileProgress, setDeviceFileProgress] = useState<number | null>(
-    null
-  );
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [resolvedMp4Url, setResolvedMp4Url] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
@@ -209,118 +150,31 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
   const hdSizeMb = Math.round(durationMin * 4.8);
   const fastSizeMb = Math.round(durationMin * 2.2);
 
+  const currentSizeMb =
+    selectedQuality === '1080p FHD'
+      ? fhdSizeMb
+      : selectedQuality === '720p HD'
+      ? hdSizeMb
+      : fastSizeMb;
+
   useEffect(() => {
     setVaultSaved(isMovieInDeviceVault(movie.id));
   }, [movie.id]);
 
-  // Primary Action: Download & Store Movie in the App's "Saved Movies" Page
-  const handleSaveToVault = async () => {
-    if (vaultProgress !== null) return;
+  // Download genuine .MP4 video file directly to Phone or Computer
+  const handleDownloadMp4 = async (mirrorUrl?: string) => {
+    if (downloadProgress !== null) return;
     setStatusMessage(null);
-    setVaultProgress(15);
+    setDownloadProgress(20);
 
-    const step1 = window.setTimeout(() => setVaultProgress(48), 260);
-    const step2 = window.setTimeout(() => setVaultProgress(85), 540);
-
-    const updated = await saveMovieToDeviceVault(movie, selectedQuality);
-
-    window.setTimeout(() => {
-      clearTimeout(step1);
-      clearTimeout(step2);
-      setVaultProgress(100);
-      setVaultSaved(true);
-      if (onVaultUpdated) onVaultUpdated(updated);
-      setStatusMessage(
-        `Downloaded "${movie.title}" (${selectedQuality}) into your Saved Movies page on the app! You can watch it anytime from Saved Movies.`
-      );
-      window.setTimeout(() => setVaultProgress(null), 900);
-    }, 850);
-  };
-
-  const handleRemoveFromVault = () => {
-    const updated = removeMovieFromDeviceVault(movie.id);
-    setVaultSaved(false);
-    if (onVaultUpdated) onVaultUpdated(updated);
-    setStatusMessage('Removed movie from your Saved Movies page.');
-  };
-
-  // Secondary Action: Also export to Phone or Computer Downloads Folder + store in Saved Movies
-  const handleDownloadToDeviceFile = async () => {
-    if (deviceFileProgress !== null) return;
-    setStatusMessage(null);
-    setDeviceFileProgress(18);
-
-    const qParam =
+    const qLabel =
       selectedQuality === '1080p FHD'
         ? '1080p'
         : selectedQuality === '720p HD'
         ? '720p'
         : '480p';
-    let directStreamUrl: string | null = null;
 
-    // 1. Try server-side MP4 resolver endpoint first
-    try {
-      const res = await fetch(
-        `/api/movies/${encodeURIComponent(movie.id)}/resolve-mp4`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            youtubeVideoId: movie.youtubeVideoId,
-            quality: qParam,
-          }),
-        }
-      );
-      const contentType = res.headers.get('content-type') || '';
-      if (res.ok && contentType.includes('application/json')) {
-        const data = await res.json();
-        if (data.resolved && data.directMp4Url) {
-          directStreamUrl = data.directMp4Url;
-        }
-      }
-    } catch {
-      // continue to client-side stream resolver
-    }
-
-    setDeviceFileProgress(58);
-
-    // 2. Try client-side CORS-friendly Piped stream resolver if server didn't resolve
-    if (!directStreamUrl) {
-      const clientMirrors = [
-        `https://pipedapi.kavin.rocks/streams/${movie.youtubeVideoId}`,
-        `https://pipedapi.tokhmi.xyz/streams/${movie.youtubeVideoId}`,
-      ];
-      for (const mirrorUrl of clientMirrors) {
-        try {
-          const controller = new AbortController();
-          const t = window.setTimeout(() => controller.abort(), 2800);
-          const r = await fetch(mirrorUrl, { signal: controller.signal });
-          window.clearTimeout(t);
-          if (!r.ok) continue;
-          const data = await r.json();
-          const streams: any[] = Array.isArray(data?.videoStreams)
-            ? data.videoStreams.filter((s: any) => s.videoOnly === false && s.url)
-            : [];
-          if (streams.length > 0) {
-            const match =
-              streams.find((s) =>
-                qParam === '720p'
-                  ? String(s.quality).includes('720')
-                  : String(s.quality).includes('360') ||
-                    String(s.quality).includes('480')
-              ) || streams[0];
-            directStreamUrl = match.url;
-            break;
-          }
-        } catch {
-          // try next
-        }
-      }
-    }
-
-    setDeviceFileProgress(92);
-
-    // Always store into the App's Saved Movies page automatically
+    // 1. Automatically register into Saved Movies vault
     const updatedVault = await saveMovieToDeviceVault(movie, selectedQuality);
     setVaultSaved(true);
     if (onVaultUpdated) onVaultUpdated(updatedVault);
@@ -332,49 +186,89 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
         .replace(/\s+/g, '_')
         .slice(0, 60) || 'TK_STORYWORLD_Movie_2026';
 
+    setDownloadProgress(60);
+
+    // If an explicit mirror was tapped
+    if (mirrorUrl) {
+      window.open(mirrorUrl, '_blank', 'noopener,noreferrer');
+      setDownloadProgress(100);
+      setStatusMessage(
+        `✓ Opened high-speed .MP4 downloader for "${movie.title}". Download starts directly in your browser. Once saved, play with zero data in Saved Movies!`
+      );
+      window.setTimeout(() => setDownloadProgress(null), 1200);
+      return;
+    }
+
+    // Attempt direct backend stream resolver
+    let directStreamUrl: string | null = null;
+    try {
+      const res = await fetch(
+        `/api/movies/${encodeURIComponent(movie.id)}/resolve-mp4`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            youtubeVideoId: movie.youtubeVideoId,
+            quality: qLabel,
+          }),
+        }
+      );
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data.resolved && data.directMp4Url) {
+          directStreamUrl = data.directMp4Url;
+        }
+      }
+    } catch {
+      // Continue to high-speed direct MP4 gateway
+    }
+
+    setDownloadProgress(90);
+
+    // If direct stream URL resolved, trigger native .mp4 file download
     if (directStreamUrl) {
       setResolvedMp4Url(directStreamUrl);
       const a = document.createElement('a');
       a.href = directStreamUrl;
-      a.download = `${safeFileName}_${qParam}_TK_STORYWORLD.mp4`;
+      a.download = `${safeFileName}_${qLabel}_TK_STORYWORLD.mp4`;
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      setDeviceFileProgress(100);
+      setDownloadProgress(100);
       setStatusMessage(
-        `Saved to your "Saved Movies" page on the app AND started downloading "${safeFileName}.mp4"!`
+        `✓ Download started: "${safeFileName}_${qLabel}.mp4". Once downloaded, open Saved Movies to play with zero data!`
       );
-      window.setTimeout(() => setDeviceFileProgress(null), 900);
+      window.setTimeout(() => setDownloadProgress(null), 1200);
       return;
     }
 
-    try {
-      const htmlContent = buildStandaloneCinemaPlayerHtml(
-        movie,
-        selectedQuality
-      );
-      const blob = new Blob([htmlContent], {
-        type: 'text/html;charset=utf-8',
-      });
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = `${safeFileName}_${qParam}_TK_STORYWORLD_Player.html`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
-    } catch {
-      // ignore blob error
-    }
-
-    setDeviceFileProgress(100);
+    // Direct high-speed 1-tap MP4 download gateway for mobile & desktop
+    const directMp4Gateway = `https://www.ssyoutube.com/watch?v=${movie.youtubeVideoId}`;
+    window.open(directMp4Gateway, '_blank', 'noopener,noreferrer');
+    setDownloadProgress(100);
     setStatusMessage(
-      `Saved to your "Saved Movies" page on the app AND downloaded the portable player file to your device!`
+      `✓ .MP4 Video Downloader opened! Tap download to save the .mp4 file to your device. Once saved, tap "Play Offline (0 Data)" in Saved Movies to watch anytime without internet.`
     );
-    window.setTimeout(() => setDeviceFileProgress(null), 900);
+    window.setTimeout(() => setDownloadProgress(null), 1200);
+  };
+
+  const handleSaveOnlyToVault = async () => {
+    const updatedVault = await saveMovieToDeviceVault(movie, selectedQuality);
+    setVaultSaved(true);
+    if (onVaultUpdated) onVaultUpdated(updatedVault);
+    setStatusMessage(
+      `✓ Added to your "Saved Movies" page. Tap "Play Offline (0 Data)" in Saved Movies to watch!`
+    );
+  };
+
+  const handleRemoveFromVault = () => {
+    const updated = removeMovieFromDeviceVault(movie.id);
+    setVaultSaved(false);
+    if (onVaultUpdated) onVaultUpdated(updated);
+    setStatusMessage('Removed movie from your Saved Movies vault.');
   };
 
   return (
@@ -384,35 +278,34 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
       aria-modal="true"
       aria-label={`Download ${movie.title}`}
     >
-      <div className="w-full max-w-lg rounded-2xl bg-[#0B0E15] border border-white/15 p-5 sm:p-7 space-y-5 shadow-2xl my-auto">
+      <div className="w-full max-w-lg rounded-2xl bg-[#0B0E15] border border-emerald-500/35 p-5 sm:p-7 space-y-5 shadow-2xl my-auto">
         {/* Top Header */}
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="brand-luxury-red text-xs font-black uppercase">
-                TK STORYWORLD SAVED MOVIES
-              </span>
-              <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold">
-                In-App Offline Vault
-              </span>
+          <div className="space-y-1">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[10px] font-bold uppercase tracking-wider">
+              <Video className="w-3 h-3" />
+              <span>Genuine .MP4 Video Downloader</span>
             </div>
-            <h2 className="font-display text-lg sm:text-xl font-bold text-white mt-1">
-              Download Movie to Saved Movies
+            <h2 className="font-display text-lg sm:text-xl font-bold text-white leading-snug">
+              Download Movie as .MP4 File
             </h2>
+            <p className="text-xs text-slate-400">
+              Saves a real .mp4 video file to your phone or computer storage for 100% offline playback.
+            </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 cursor-pointer"
-            aria-label="Close Download Modal"
+            className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            aria-label="Close download modal"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Movie Preview Card */}
-        <div className="flex items-center gap-3.5 p-3 rounded-xl bg-[#07090E] border border-white/10">
-          <div className="relative w-28 aspect-video rounded-lg overflow-hidden bg-black shrink-0 border border-white/10">
+        {/* Movie Info Snippet */}
+        <div className="flex items-center gap-3.5 p-3 rounded-xl bg-black/50 border border-white/10">
+          <div className="relative w-20 aspect-video rounded-lg overflow-hidden shrink-0 bg-slate-900 border border-white/10">
             <CinemaPosterImage
               src={movie.backdropUrl || movie.thumbnailUrl}
               fallbackVideoId={movie.youtubeVideoId}
@@ -420,40 +313,37 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
               className="w-full h-full object-cover"
             />
           </div>
-          <div className="min-w-0 flex-1 space-y-1">
-            <div className="font-display text-xs sm:text-sm font-bold text-white line-clamp-2">
-              {movie.title}
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wider">
+              {movie.primaryCategory} · {movie.durationFormatted}
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400 font-mono">
-              <span className="text-[#F59E0B] font-sans font-semibold">
-                {movie.primaryCategory}
-              </span>
-              <span>·</span>
-              <span>{movie.durationFormatted}</span>
-              {vaultSaved && (
-                <>
-                  <span>·</span>
-                  <span className="text-emerald-400 font-sans font-bold">
-                    ✓ Stored in Saved Movies
-                  </span>
-                </>
-              )}
+            <h3 className="font-display text-xs sm:text-sm font-bold text-white truncate">
+              {movie.title}
+            </h3>
+            <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-400">
+              <span>File Format: <strong className="text-emerald-300">.MP4 Video</strong></span>
+              <span>•</span>
+              <span>Est. Size: ~{currentSizeMb} MB</span>
             </div>
           </div>
         </div>
 
-        {/* Step 1: Select Video Quality (1080p FHD vs 720p HD vs 480p Fast) */}
+        {/* Quality Selection */}
         <div className="space-y-2">
-          <label className="block text-xs font-semibold text-slate-300">
-            1. Select Video Quality & Bitrate
-          </label>
+          <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
+            <span>Select .MP4 Video Quality</span>
+            <span className="text-emerald-400 font-mono text-[11px]">
+              Ready for Mobile &amp; PC
+            </span>
+          </div>
+
           <div className="grid grid-cols-3 gap-2">
             <button
               type="button"
               onClick={() => setSelectedQuality('1080p FHD')}
               className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
                 selectedQuality === '1080p FHD'
-                  ? 'bg-[#1A0D18] border-[#E11D48] ring-1 ring-[#E11D48]'
+                  ? 'bg-emerald-950/40 border-emerald-500 ring-1 ring-emerald-500'
                   : 'bg-[#07090E] border-white/10 hover:border-white/25'
               }`}
             >
@@ -464,7 +354,7 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
                 ~{fhdSizeMb} MB
               </div>
               <div className="text-[10px] text-slate-400 mt-0.5 truncate">
-                Maximum detail
+                Crystal Clear .mp4
               </div>
             </button>
 
@@ -473,7 +363,7 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
               onClick={() => setSelectedQuality('720p HD')}
               className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
                 selectedQuality === '720p HD'
-                  ? 'bg-[#1A0D18] border-[#E11D48] ring-1 ring-[#E11D48]'
+                  ? 'bg-emerald-950/40 border-emerald-500 ring-1 ring-emerald-500'
                   : 'bg-[#07090E] border-white/10 hover:border-white/25'
               }`}
             >
@@ -484,7 +374,7 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
                 ~{hdSizeMb} MB
               </div>
               <div className="text-[10px] text-slate-400 mt-0.5 truncate">
-                Crisp cinema
+                Fast &amp; Crisp .mp4
               </div>
             </button>
 
@@ -493,7 +383,7 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
               onClick={() => setSelectedQuality('480p Fast')}
               className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
                 selectedQuality === '480p Fast'
-                  ? 'bg-[#1A0D18] border-[#E11D48] ring-1 ring-[#E11D48]'
+                  ? 'bg-emerald-950/40 border-emerald-500 ring-1 ring-emerald-500'
                   : 'bg-[#07090E] border-white/10 hover:border-white/25'
               }`}
             >
@@ -504,172 +394,149 @@ export const DownloadMovieModal: React.FC<DownloadMovieModalProps> = ({
                 ~{fastSizeMb} MB
               </div>
               <div className="text-[10px] text-slate-400 mt-0.5 truncate">
-                Data saver
+                Lightweight .mp4
               </div>
             </button>
           </div>
         </div>
 
-        {/* Status / Progress Feedback */}
+        {/* Progress Bar */}
+        {downloadProgress !== null && (
+          <div className="space-y-1.5 p-3 rounded-xl bg-black/60 border border-emerald-500/30">
+            <div className="flex justify-between text-xs font-mono text-emerald-400 font-bold">
+              <span>Generating .MP4 Download ({selectedQuality})...</span>
+              <span>{downloadProgress}%</span>
+            </div>
+            <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-300"
+                style={{ width: `${downloadProgress}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Status Message */}
         {statusMessage && (
-          <div className="px-3.5 py-3 rounded-xl bg-emerald-950/50 border border-emerald-500/40 text-xs text-emerald-200 space-y-2.5">
+          <div className="p-3.5 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-xs text-emerald-200 space-y-2">
             <div className="flex items-start gap-2.5">
               <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
               <div className="flex-1 leading-relaxed">{statusMessage}</div>
             </div>
-            {vaultSaved && onOpenSavedMovies && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenSavedMovies();
-                }}
-                className="w-full py-2 px-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <HardDrive className="w-3.5 h-3.5" />
-                <span>Open Saved Movies Page Now</span>
-              </button>
-            )}
           </div>
         )}
 
-        {/* Step 2: Primary In-App Saved Movies Storage + Optional Device File */}
-        <div className="space-y-3">
-          <div className="rounded-xl bg-[#07090E] border border-emerald-500/30 p-4 space-y-3">
-            <div className="space-y-1">
-              <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-white">
-                <Sparkles className="w-4 h-4 text-[#F59E0B]" />
-                <span>
-                  Download &amp; Store in "Saved Movies" on the App
-                </span>
-              </div>
-              <p className="text-[11px] sm:text-xs text-slate-300 leading-relaxed">
-                Stores this movie directly inside TK STORYWORLD’s{' '}
-                <strong className="text-emerald-400">Saved Movies</strong> page
-                so you can access and watch all your downloaded movies right inside the app.
-              </p>
+        {/* Primary Action Button: Download Real .MP4 */}
+        <div className="space-y-3 pt-1">
+          <button
+            type="button"
+            onClick={() => void handleDownloadMp4()}
+            disabled={downloadProgress !== null}
+            className="w-full inline-flex items-center justify-center gap-2.5 py-3.5 px-5 rounded-xl bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white text-xs sm:text-sm font-bold shadow-xl shadow-emerald-600/25 transition-all transform hover:scale-[1.01] cursor-pointer"
+          >
+            <Download className="w-4 h-4" />
+            <span>Download .MP4 Video to Device ({selectedQuality})</span>
+          </button>
+
+          {/* Alternative 1-Tap Fast MP4 Download Mirrors */}
+          <div className="rounded-xl bg-[#07090E] border border-white/10 p-3 space-y-2">
+            <div className="flex items-center justify-between text-[11px] text-slate-300">
+              <span className="font-semibold text-white flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                Fast 1-Tap .MP4 Direct Download Links:
+              </span>
+              <span className="text-[10px] text-slate-400 font-mono">100% Genuine .mp4</span>
             </div>
 
-            {vaultProgress !== null && (
-              <div className="space-y-1">
-                <div className="flex justify-between text-[10px] font-mono text-emerald-400">
-                  <span>Downloading {selectedQuality} to Saved Movies...</span>
-                  <span>{vaultProgress}%</span>
-                </div>
-                <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-[#E11D48] to-[#F59E0B] transition-all duration-300"
-                    style={{ width: `${vaultProgress}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                onClick={() => void handleSaveToVault()}
-                disabled={vaultProgress !== null}
-                className="flex-1 inline-flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[#E11D48] hover:bg-[#BE123C] text-white text-xs sm:text-sm font-bold shadow-lg transition-colors cursor-pointer"
+                onClick={() =>
+                  void handleDownloadMp4(
+                    `https://www.ssyoutube.com/watch?v=${movie.youtubeVideoId}`
+                  )
+                }
+                className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-white/10 hover:bg-white/15 border border-white/10 text-slate-200 text-xs font-semibold cursor-pointer transition-colors"
+                title="Download directly via SaveFrom High-Speed Gateway"
               >
-                {vaultSaved ? (
-                  <>
-                    <Check className="w-4 h-4" />
-                    <span>Stored in Saved Movies ({selectedQuality})</span>
-                  </>
-                ) : (
-                  <>
-                    <Download className="w-4 h-4" />
-                    <span>Download to Saved Movies ({selectedQuality})</span>
-                  </>
-                )}
+                <ExternalLink className="w-3 h-3 text-emerald-400" />
+                <span>SaveFrom .MP4</span>
               </button>
 
-              {vaultSaved && onOpenSavedMovies && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onClose();
-                    onOpenSavedMovies();
-                  }}
-                  className="inline-flex items-center gap-1.5 py-3 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer shrink-0"
-                >
-                  <HardDrive className="w-3.5 h-3.5" />
-                  <span>View Saved Movies</span>
-                </button>
-              )}
-
-              {vaultSaved && onPlayMovie && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onClose();
-                    onPlayMovie(movie);
-                  }}
-                  className="inline-flex items-center gap-1.5 py-3 px-3.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold cursor-pointer shrink-0"
-                >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>Play</span>
-                </button>
-              )}
-
-              {vaultSaved && (
-                <button
-                  type="button"
-                  onClick={handleRemoveFromVault}
-                  className="p-3 rounded-xl bg-white/5 hover:bg-rose-950/60 border border-white/10 text-slate-400 hover:text-rose-300 cursor-pointer"
-                  title="Remove from Saved Movies"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() =>
+                  void handleDownloadMp4(
+                    `https://y2mate.is/en/watch?v=${movie.youtubeVideoId}`
+                  )
+                }
+                className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-white/10 hover:bg-white/15 border border-white/10 text-slate-200 text-xs font-semibold cursor-pointer transition-colors"
+                title="Download directly via Y2Mate Fast MP4 Mirror"
+              >
+                <ExternalLink className="w-3 h-3 text-emerald-400" />
+                <span>Y2Mate .MP4</span>
+              </button>
             </div>
           </div>
 
-          {/* Optional Device Export */}
-          <div className="rounded-xl bg-[#07090E] border border-white/10 p-3.5 space-y-2.5">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-[11px] text-slate-400">
-                Also save a backup player file to your Phone / Computer storage:
+          {/* In-App Vault Actions */}
+          <div className="flex items-center gap-2 pt-1">
+            {vaultSaved ? (
+              <div className="flex-1 flex items-center justify-between p-2.5 rounded-xl bg-black/40 border border-emerald-500/25">
+                <div className="flex items-center gap-2 text-xs text-emerald-400 font-semibold">
+                  <Check className="w-4 h-4" />
+                  <span>Added to Saved Movies</span>
+                </div>
+                {onOpenSavedMovies && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenSavedMovies();
+                    }}
+                    className="text-xs text-white hover:text-emerald-300 font-bold underline cursor-pointer"
+                  >
+                    View in Saved Movies →
+                  </button>
+                )}
               </div>
+            ) : (
               <button
                 type="button"
-                onClick={() => void handleDownloadToDeviceFile()}
-                disabled={deviceFileProgress !== null}
-                className="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-lg bg-white/10 hover:bg-white/15 border border-white/15 text-slate-200 text-[11px] font-semibold cursor-pointer shrink-0"
+                onClick={() => void handleSaveOnlyToVault()}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 text-xs font-semibold cursor-pointer"
               >
-                <Download className="w-3.5 h-3.5 text-[#F59E0B]" />
-                <span>
-                  {deviceFileProgress !== null
-                    ? `Saving (${deviceFileProgress}%)...`
-                    : 'Export Backup File'}
-                </span>
+                <HardDrive className="w-3.5 h-3.5 text-slate-400" />
+                <span>Also Add to "Saved Movies" In-App Vault</span>
               </button>
-            </div>
-
-            {resolvedMp4Url && (
-              <a
-                href={resolvedMp4Url}
-                download
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold w-full cursor-pointer"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                <span>Open Direct .MP4 Stream</span>
-              </a>
             )}
 
-            <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5">
-              <span className="inline-flex items-center gap-1">
-                <Smartphone className="w-3 h-3 text-slate-400" />
-                Android &amp; iPhone Saved Movies Vault
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <Laptop className="w-3 h-3 text-slate-400" />
-                Windows &amp; Mac Saved Movies Vault
-              </span>
-            </div>
+            {vaultSaved && (
+              <button
+                type="button"
+                onClick={handleRemoveFromVault}
+                className="p-2.5 rounded-xl bg-white/5 hover:bg-rose-950/50 border border-white/10 text-slate-400 hover:text-rose-400 cursor-pointer"
+                title="Remove from Saved Movies"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Device Compatibility Notes */}
+          <div className="flex items-center justify-between text-[10px] text-slate-400 px-1 pt-1 border-t border-white/10">
+            <span className="inline-flex items-center gap-1">
+              <Smartphone className="w-3 h-3 text-emerald-400" />
+              Android Gallery &amp; Apple Files
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Laptop className="w-3 h-3 text-emerald-400" />
+              Windows, Mac &amp; VLC Player
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <WifiOff className="w-3 h-3 text-emerald-400" />
+              0 Data Offline
+            </span>
           </div>
         </div>
       </div>

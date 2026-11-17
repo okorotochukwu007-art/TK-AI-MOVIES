@@ -435,6 +435,10 @@ export default function App() {
 
       // Fallback when deployed as static site (Cloudflare Pages) or if /api/bootstrap was unreachable
       // 1. Dynamic live catalogue sync directly from GitHub Raw (updates live website immediately without rebuilds)
+      const liveMap = new Map<string, MovieItem>();
+      let liveSeries: MovieSeries[] | null = null;
+      let liveSettings: AdminSettings | null = null;
+
       try {
         const liveRes = await fetch(
           `https://raw.githubusercontent.com/okorotochukwu007-art/TK-AI-MOVIES/main/data/aetheria-db.json?t=${Date.now()}`
@@ -442,33 +446,25 @@ export default function App() {
         if (liveRes.ok) {
           const liveData = await liveRes.json();
           if (Array.isArray(liveData.movies) && liveData.movies.length > 0) {
-            const approvedMovies = liveData.movies.filter(
-              (m: MovieItem) => m.approvalStatus === 'approved'
-            );
-            const liveMap = new Map<string, MovieItem>();
-            for (const m of approvedMovies) {
-              liveMap.set(m.youtubeVideoId, m);
-            }
-            for (const m of INITIAL_MOVIES) {
-              if (!liveMap.has(m.youtubeVideoId)) {
+            for (const m of liveData.movies as MovieItem[]) {
+              if (m.approvalStatus === 'approved' && m.youtubeVideoId) {
                 liveMap.set(m.youtubeVideoId, m);
               }
             }
-            const allLive = Array.from(liveMap.values());
-            if (allLive.length >= INITIAL_MOVIES.length) {
-              setMovies(allLive);
-              if (Array.isArray(liveData.series) && liveData.series.length > 0) {
-                setSeries(liveData.series);
-              }
-              if (liveData.settings) {
-                setSettings(liveData.settings);
-              }
+            if (Array.isArray(liveData.series) && liveData.series.length > 0) {
+              liveSeries = liveData.series;
+            }
+            if (liveData.settings) {
+              liveSettings = liveData.settings;
             }
           }
         }
       } catch (liveErr) {
         console.warn('Dynamic live GitHub catalogue fetch fallback warning:', liveErr);
       }
+
+      if (liveSeries) setSeries(liveSeries);
+      if (liveSettings) setSettings(liveSettings);
 
       const sb = await initSupabaseIfNeeded();
       if (sb) {
@@ -488,7 +484,11 @@ export default function App() {
             'P_mBOwMq0WA',
             'ETxZkF5pEHY',
           ]);
-          const mappedMovies: MovieItem[] = [];
+          const mergedByVid = new Map<string, MovieItem>();
+          // Keep newest daily-synced movies from live GitHub JSON first
+          for (const [vid, lm] of liveMap.entries()) {
+            mergedByVid.set(vid, lm);
+          }
           for (const row of dbMovies) {
             const vid = row.youtube_video_id as string;
             const text = `${row.title || ''} ${row.channel_title || ''} ${
@@ -503,11 +503,12 @@ export default function App() {
             ) {
               continue;
             }
+            if (mergedByVid.has(vid)) continue;
             const bundled = initialByVid.get(vid);
             if (bundled) {
-              mappedMovies.push(bundled);
+              mergedByVid.set(vid, bundled);
             } else {
-              mappedMovies.push({
+              mergedByVid.set(vid, {
                 id: row.id,
                 youtubeVideoId: vid,
                 title: row.title,
@@ -541,21 +542,32 @@ export default function App() {
             }
           }
 
-          const combined = [...mappedMovies];
-          const existingIds = new Set(combined.map((m) => m.youtubeVideoId));
           for (const m of INITIAL_MOVIES) {
-            if (!existingIds.has(m.youtubeVideoId)) {
-              combined.push(m);
-              existingIds.add(m.youtubeVideoId);
+            if (!mergedByVid.has(m.youtubeVideoId)) {
+              mergedByVid.set(m.youtubeVideoId, m);
             }
           }
 
-          setMovies(combined.filter((m) => m.approvalStatus === 'approved'));
-        } else {
-          setMovies([...INITIAL_MOVIES]);
+          setMovies(
+            Array.from(mergedByVid.values()).filter(
+              (m) => m.approvalStatus === 'approved'
+            )
+          );
+          return;
         }
+      }
+
+      if (liveMap.size > 0) {
+        for (const m of INITIAL_MOVIES) {
+          if (!liveMap.has(m.youtubeVideoId)) {
+            liveMap.set(m.youtubeVideoId, m);
+          }
+        }
+        setMovies(Array.from(liveMap.values()));
       } else {
-        setMovies((prev) => (prev.length >= INITIAL_MOVIES.length ? prev : [...INITIAL_MOVIES]));
+        setMovies((prev) =>
+          prev.length >= INITIAL_MOVIES.length ? prev : [...INITIAL_MOVIES]
+        );
       }
     } catch (err) {
       console.error('Bootstrap fallback activated:', err);

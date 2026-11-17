@@ -439,7 +439,7 @@ export async function classifyMovieWithGemini(
 
   try {
     const geminiPromise = ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-4-hydrogen',
       contents: `Analyze this YouTube video for TK STORYWORLD, a luxury streaming platform for AI-generated movies, Complete-Screen Action Movies, Nigerian & International billionaire romance, CEO love stories, contract marriages, emotional dramas, and AI animated films.
 Title: ${rawTitle}
 Channel: ${channelTitle}
@@ -893,7 +893,7 @@ export async function runDiscoveryPipeline(
       const searchOrder = i % 2 === 1 ? 'date' : 'relevance';
       try {
         quotaCostEstimate += 100; // search.list = 100 units
-        const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoEmbeddable=true&order=${searchOrder}&maxResults=18&q=${encodeURIComponent(
+        const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoEmbeddable=true&publishedAfter=2026-01-01T00:00:00Z&order=${searchOrder}&maxResults=18&q=${encodeURIComponent(
           qSource.value
         )}&key=${encodeURIComponent(apiKey!)}`;
         const searchRes = await fetch(searchUrl);
@@ -924,8 +924,12 @@ export async function runDiscoveryPipeline(
               );
               const isEmbeddable = video.status?.embeddable !== false;
               const isPublic = video.status?.privacyStatus === 'public';
+              const pubAt = String(video.snippet?.publishedAt || '');
+              const titleAndDesc = `${video.snippet?.title || ''} ${video.snippet?.description || ''}`;
 
               if (!isPublic) continue;
+              if (!pubAt.startsWith('2026-')) continue;
+              if (/\b(19\d{2}|200\d|201\d|202[0-5])\b/.test(titleAndDesc)) continue;
               if (settings.requireEmbeddable && !isEmbeddable) continue;
               if (durationSec > 0 && durationSec < settings.minDurationSeconds) continue;
 
@@ -990,17 +994,18 @@ export async function runDiscoveryPipeline(
     // Zero-quota 2026 American Movie Discovery via YouTube Search + oEmbed verification
     const nonAmericanRegex =
       /nigerian|nollywood|african|yoruba|igbo|lagos|ghana|hindi|bollywood|chinese|korean|tamil|telugu|bhojpuri|tagalog|filipino|arab|turkish|nolly/i;
-    const selectedQueries = querySources.slice(0, 3);
+    const selectedQueries = querySources.slice(0, 6);
     for (const qSource of selectedQueries) {
       try {
         const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(
           qSource.value
-        )}`;
+        )}&sp=EgIIBQ%253D%253D&hl=en&gl=US`;
         const res = await fetch(searchUrl, {
           headers: {
             'User-Agent':
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
+            Cookie: 'SOCS=CAESEwgDEgk0ODE3Nzk3MjQaAmVuIAEaBgiA_LyaBg; CONSENT=YES+cb',
           },
         });
         await repo.updateSourceChecked(qSource.id);
@@ -1030,6 +1035,7 @@ export async function runDiscoveryPipeline(
               vr.detailedMetadataSnippets?.[0]?.snippetText?.runs
                 ?.map((r: any) => r.text)
                 .join('') || '';
+            const pubTimeText = String(vr.publishedTimeText?.simpleText || '');
             const parts = (vr.lengthText?.simpleText || '')
               .split(':')
               .map(Number);
@@ -1046,7 +1052,10 @@ export async function runDiscoveryPipeline(
               durSec >= 2400 &&
               !title.toLowerCase().includes('#shorts') &&
               !title.toLowerCase().includes('trailer') &&
-              !nonAmericanRegex.test(`${title} ${chan} ${snippet}`)
+              !nonAmericanRegex.test(`${title} ${chan} ${snippet}`) &&
+              !/\b(19\d{2}|200\d|201\d|202[0-5])\b/.test(`${title} ${snippet}`) &&
+              !/\b(year|years|jaar|jaren|11 months|12 months)\b/i.test(pubTimeText) &&
+              `${title} ${snippet}`.includes('2026')
             ) {
               candidates.push({
                 videoId: vid,

@@ -10,22 +10,31 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: auto-update-movies
+  cancel-in-progress: false
+
 jobs:
   update-catalogue:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
-      - name: Install Dependencies
-        run: npm ci || npm install
+      - name: Install Runner Tooling
+        run: npm install --no-save --no-audit --no-fund tsx
 
       - name: Run Auto Discovery & Movie Sync
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: npx tsx scripts/autoSyncMovies.ts
 
       - name: Commit and Push if Changed
@@ -34,7 +43,8 @@ jobs:
           git config --global user.email "okorotochukwu007@gmail.com"
           git add data/aetheria-db.json
           if ! git diff --staged --quiet; then
-            git commit -m "chore(catalogue): auto-update movies catalogue [skip ci]"
+            git commit -m "chore(catalogue): auto-update movies catalogue"
+            git pull --rebase --autostash origin main || true
             git push origin main
           else
             echo "Catalogue is up to date, no changes to commit."

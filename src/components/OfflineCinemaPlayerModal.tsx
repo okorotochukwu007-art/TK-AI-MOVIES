@@ -55,12 +55,26 @@ export function OfflineCinemaPlayerModal({
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [fillScreen, setFillScreen] = useState<boolean>(false);
   const [showControls, setShowControls] = useState<boolean>(true);
   const [isDraggingProgress, setIsDraggingProgress] = useState<boolean>(false);
   const [dragTime, setDragTime] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSavedInVault, setIsSavedInVault] = useState<boolean>(false);
   const [savingToVault, setSavingToVault] = useState<boolean>(false);
+
+  useEffect(() => {
+    const syncFs = () => {
+      const doc = document as any;
+      setIsFullscreen(Boolean(doc.fullscreenElement || doc.webkitFullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', syncFs);
+    document.addEventListener('webkitfullscreenchange', syncFs);
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFs);
+      document.removeEventListener('webkitfullscreenchange', syncFs);
+    };
+  }, []);
 
   // Resume progress storage key
   const progressStorageKey = `tk_offline_progress_${movie.id}`;
@@ -248,14 +262,54 @@ export function OfflineCinemaPlayerModal({
     }
   };
 
-  const toggleFullscreen = () => {
-    if (!containerRef.current) return;
-    if (!document.fullscreenElement) {
-      containerRef.current.requestFullscreen?.().catch(() => {});
-      setIsFullscreen(true);
-    } else {
-      document.exitFullscreen?.().catch(() => {});
-      setIsFullscreen(false);
+  const toggleFullscreen = async () => {
+    const container = containerRef.current as any;
+    const video = videoRef.current as any;
+    const doc = document as any;
+
+    try {
+      if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+        if (doc.exitFullscreen) {
+          await doc.exitFullscreen();
+        } else if (doc.webkitExitFullscreen) {
+          doc.webkitExitFullscreen();
+        }
+        try {
+          (screen.orientation as any)?.unlock?.();
+        } catch {
+          // ignore
+        }
+        setIsFullscreen(false);
+        return;
+      }
+
+      if (container?.requestFullscreen) {
+        await container.requestFullscreen();
+        setIsFullscreen(true);
+        try {
+          await (screen.orientation as any)?.lock?.('landscape');
+        } catch {
+          // ignore if orientation lock is unsupported
+        }
+      } else if (container?.webkitRequestFullscreen) {
+        container.webkitRequestFullscreen();
+        setIsFullscreen(true);
+      } else if (video?.webkitEnterFullscreen) {
+        // Native iPhone Safari video hardware fullscreen
+        video.webkitEnterFullscreen();
+        setIsFullscreen(true);
+      } else {
+        setIsFullscreen((prev) => !prev);
+      }
+    } catch {
+      if (video?.webkitEnterFullscreen) {
+        try {
+          video.webkitEnterFullscreen();
+        } catch {
+          // ignore
+        }
+      }
+      setIsFullscreen((prev) => !prev);
     }
   };
 
@@ -270,7 +324,7 @@ export function OfflineCinemaPlayerModal({
     }
   };
 
-  // Auto-hide controls
+  // Auto-hide controls on mouse move or touch tap
   const handleMouseMove = () => {
     setShowControls(true);
     if (controlsTimeoutRef.current) {
@@ -281,6 +335,18 @@ export function OfflineCinemaPlayerModal({
         setShowControls(false);
       }
     }, 3200);
+  };
+
+  const handleStageTap = () => {
+    if (!isPlaying) {
+      togglePlay();
+      return;
+    }
+    if (showControls) {
+      setShowControls(false);
+    } else {
+      handleMouseMove();
+    }
   };
 
   // Format seconds to H:MM:SS or MM:SS
@@ -318,7 +384,7 @@ export function OfflineCinemaPlayerModal({
 
       {/* TOP HEADER */}
       <div
-        className={`absolute top-0 left-0 right-0 z-30 bg-gradient-to-b from-black/95 via-black/70 to-transparent p-4 sm:p-6 transition-opacity duration-300 flex items-center justify-between gap-4 ${
+        className={`absolute top-0 left-0 right-0 z-30 bg-gradient-to-b from-black/95 via-black/70 to-transparent pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(0.75rem,env(safe-area-inset-top))] pb-4 sm:p-6 transition-opacity duration-300 flex items-center justify-between gap-4 ${
           showControls || !isPlaying ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
       >
@@ -377,7 +443,7 @@ export function OfflineCinemaPlayerModal({
             <video
               ref={videoRef}
               src={videoUrl}
-              onClick={togglePlay}
+              onClick={handleStageTap}
               onLoadedMetadata={handleLoadedMetadata}
               onTimeUpdate={handleTimeUpdate}
               onPlay={() => setIsPlaying(true)}
@@ -388,22 +454,32 @@ export function OfflineCinemaPlayerModal({
                 setErrorMessage('Unable to decode video format. Please select a valid MP4 file.');
               }}
               playsInline
-              className="w-full h-full object-contain cursor-pointer"
+              className={`w-full h-full cursor-pointer transition-all ${
+                fillScreen ? 'object-cover' : 'object-contain'
+              }`}
             />
 
             {/* BIG CENTER PLAY/PAUSE OVERLAY ON TAP/PAUSE */}
             {(!isPlaying || showControls) && (
               <div
-                onClick={togglePlay}
-                className="absolute inset-0 flex items-center justify-center bg-black/25 pointer-events-auto cursor-pointer"
+                onClick={handleStageTap}
+                className="absolute inset-0 flex items-center justify-center bg-black/20 pointer-events-auto cursor-pointer"
               >
-                <div className="w-20 h-20 rounded-full bg-[#E11D48]/90 hover:bg-[#E11D48] text-white flex items-center justify-center shadow-2xl transition-all transform hover:scale-105">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    togglePlay();
+                    handleMouseMove();
+                  }}
+                  className="w-20 h-20 rounded-full bg-[#E11D48]/90 hover:bg-[#E11D48] text-white flex items-center justify-center shadow-2xl transition-all transform hover:scale-105 cursor-pointer"
+                >
                   {isPlaying ? (
                     <Pause className="w-9 h-9 fill-current" />
                   ) : (
-                    <Play className="w-9 h-9 fill-current ml-1" />
+                    <Play className="w-9 h-9 fill-current ml-0.5" />
                   )}
-                </div>
+                </button>
               </div>
             )}
           </>
@@ -474,7 +550,7 @@ export function OfflineCinemaPlayerModal({
       {/* BOTTOM CONTROLS & TIMELINE SCRUBBER */}
       {videoUrl && (
         <div
-          className={`absolute bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-black/95 via-black/80 to-transparent p-4 sm:p-6 space-y-3 transition-opacity duration-300 ${
+          className={`absolute bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-black/95 via-black/80 to-transparent pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-4 sm:p-6 space-y-3 transition-opacity duration-300 ${
             showControls || !isPlaying ? 'opacity-100' : 'opacity-0 pointer-events-none'
           }`}
         >
@@ -533,7 +609,7 @@ export function OfflineCinemaPlayerModal({
               </div>
             </div>
 
-            {/* Right Controls: Volume, Speed, Fullscreen */}
+            {/* Right Controls: Volume, Fit/Fill, Speed, Fullscreen */}
             <div className="flex items-center gap-2 sm:gap-3">
               {/* Volume */}
               <div className="hidden sm:flex items-center gap-2">
@@ -559,6 +635,15 @@ export function OfflineCinemaPlayerModal({
                 />
               </div>
 
+              <button
+                type="button"
+                onClick={() => setFillScreen((prev) => !prev)}
+                className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-semibold text-slate-200 cursor-pointer"
+                title="Toggle 16:9 Fit vs Full Screen Fill"
+              >
+                {fillScreen ? '16:9 Fit' : 'Screen Fill'}
+              </button>
+
               {/* Playback Speed Selector */}
               <div className="relative group">
                 <button className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-mono font-bold text-slate-200 cursor-pointer">
@@ -583,8 +668,8 @@ export function OfflineCinemaPlayerModal({
 
               {/* Fullscreen */}
               <button
-                onClick={toggleFullscreen}
-                className="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 flex items-center justify-center text-white transition-colors cursor-pointer"
+                onClick={() => void toggleFullscreen()}
+                className="w-9 h-9 rounded-xl bg-[#E11D48] hover:bg-[#BE123C] flex items-center justify-center text-white transition-colors cursor-pointer"
                 title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
               >
                 {isFullscreen ? (

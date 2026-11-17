@@ -8,10 +8,12 @@ import {
   Heart,
   Maximize2,
   MessageCircle,
+  Minimize2,
   Pause,
   Play,
   RotateCcw,
   Share2,
+  SlidersHorizontal,
   Volume2,
   VolumeX,
   WifiOff,
@@ -450,28 +452,116 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
   }, [onClose, seekRelativeSeconds, showShareCard]);
 
   const [isMobileTheatreExpanded, setIsMobileTheatreExpanded] = useState(false);
+  const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
+  const [isLandscapeViewport, setIsLandscapeViewport] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.innerWidth > window.innerHeight && window.innerHeight <= 560;
+  });
+  const [hudVisible, setHudVisible] = useState(true);
+  const hudTimerRef = useRef<number | null>(null);
   const [screenFitMode, setScreenFitMode] = useState<'fit' | 'fill' | 'zoom'>('fit');
 
+  const isImmersiveCinema =
+    isNativeFullscreen || isMobileTheatreExpanded || isLandscapeViewport;
+
+  const revealHudTemporarily = React.useCallback(() => {
+    setHudVisible(true);
+    if (hudTimerRef.current) {
+      window.clearTimeout(hudTimerRef.current);
+      hudTimerRef.current = null;
+    }
+  }, []);
+
+  // Track device rotation / landscape slide & native fullscreen state
+  useEffect(() => {
+    const checkOrientation = () => {
+      const landscape =
+        window.innerWidth > window.innerHeight && window.innerHeight <= 560;
+      setIsLandscapeViewport(landscape);
+      setHudVisible(true);
+    };
+
+    const handleFullscreenChange = () => {
+      const doc = document as any;
+      const fsActive = Boolean(doc.fullscreenElement || doc.webkitFullscreenElement);
+      setIsNativeFullscreen(fsActive);
+      if (!fsActive) {
+        setIsMobileTheatreExpanded(false);
+      }
+      setHudVisible(true);
+    };
+
+    checkOrientation();
+    window.addEventListener('resize', checkOrientation);
+    window.addEventListener('orientationchange', checkOrientation);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+
+    return () => {
+      window.removeEventListener('resize', checkOrientation);
+      window.removeEventListener('orientationchange', checkOrientation);
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  // Auto-hide header & bottom controls in landscape or fullscreen while playing so 100% of screen shows the movie
+  useEffect(() => {
+    if (hudTimerRef.current) {
+      window.clearTimeout(hudTimerRef.current);
+      hudTimerRef.current = null;
+    }
+    if (
+      isImmersiveCinema &&
+      playerPlaying &&
+      !isScrubbing &&
+      !showShareCard &&
+      bingeCountdown === null &&
+      !userExplicitlyPaused
+    ) {
+      hudTimerRef.current = window.setTimeout(() => {
+        setHudVisible(false);
+      }, 3200);
+    } else {
+      setHudVisible(true);
+    }
+    return () => {
+      if (hudTimerRef.current) {
+        window.clearTimeout(hudTimerRef.current);
+        hudTimerRef.current = null;
+      }
+    };
+  }, [
+    isImmersiveCinema,
+    playerPlaying,
+    isScrubbing,
+    showShareCard,
+    bingeCountdown,
+    userExplicitlyPaused,
+    hudVisible,
+  ]);
+
   const cycleScreenFitMode = () => {
+    revealHudTemporarily();
     setScreenFitMode((prev) =>
       prev === 'fit' ? 'fill' : prev === 'fill' ? 'zoom' : 'fit'
     );
   };
 
-  // Cinema zoom/fill options so portrait viewers can expand the movie frame anytime with 1 tap
+  // Cinema zoom/fill options so portrait & 20:9 landscape viewers can fill the entire screen cleanly
   const screenFitScaleClass =
     screenFitMode === 'zoom'
-      ? 'scale-[1.42] origin-center'
+      ? 'scale-[1.36] origin-center'
       : screenFitMode === 'fill'
-      ? 'scale-[1.2] origin-center'
+      ? 'scale-[1.18] origin-center'
       : '';
 
   const screenFitLabel =
     screenFitMode === 'zoom'
       ? 'Max Zoom'
       : screenFitMode === 'fill'
-      ? 'Cinema Fill'
-      : 'Full Fit';
+      ? 'Screen Fill'
+      : '16:9 Fit';
 
   const embedSrcUrl = React.useMemo(() => {
     const host =
@@ -513,13 +603,21 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
   const toggleFullscreen = async () => {
     const el = videoViewportRef.current as any;
     if (!el) return;
+    const doc = document as any;
+    const currentlyFullscreen =
+      Boolean(doc.fullscreenElement || doc.webkitFullscreenElement) ||
+      isMobileTheatreExpanded;
+
     try {
-      const doc = document as any;
-      if (doc.fullscreenElement || doc.webkitFullscreenElement) {
-        if (doc.exitFullscreen) {
-          await doc.exitFullscreen();
-        } else if (doc.webkitExitFullscreen) {
-          doc.webkitExitFullscreen();
+      if (currentlyFullscreen) {
+        setIsMobileTheatreExpanded(false);
+        setHudVisible(true);
+        if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+          if (doc.exitFullscreen) {
+            await doc.exitFullscreen();
+          } else if (doc.webkitExitFullscreen) {
+            doc.webkitExitFullscreen();
+          }
         }
         if (
           typeof screen !== 'undefined' &&
@@ -532,8 +630,14 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
             // ignore
           }
         }
-        setIsMobileTheatreExpanded(false);
-      } else if (el.requestFullscreen) {
+        return;
+      }
+
+      // Always activate full-viewport immersive mode (works immediately on iPhone Safari too)
+      setIsMobileTheatreExpanded(true);
+      setHudVisible(true);
+
+      if (el.requestFullscreen) {
         await el.requestFullscreen();
         if (
           typeof screen !== 'undefined' &&
@@ -548,11 +652,11 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
         }
       } else if (el.webkitRequestFullscreen) {
         el.webkitRequestFullscreen();
-      } else {
-        setIsMobileTheatreExpanded((prev) => !prev);
       }
     } catch {
-      setIsMobileTheatreExpanded((prev) => !prev);
+      // Keep immersive expanded viewport even if native Fullscreen API rejects
+      setIsMobileTheatreExpanded(true);
+      setHudVisible(true);
     }
   };
 
@@ -602,20 +706,34 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
   return (
     <div
       ref={videoViewportRef}
+      onMouseMove={() => {
+        if (isImmersiveCinema) revealHudTemporarily();
+      }}
       className="fixed inset-0 z-50 w-full h-[100dvh] bg-black flex flex-col justify-between overflow-hidden select-none"
       role="dialog"
       aria-modal="true"
       aria-label={movie.title}
     >
-      {/* TOP CINEMA EDGE BAR — Sits cleanly above video stage on portrait & edges on landscape without obscuring center screen */}
+      {/* TOP CINEMA EDGE BAR — Docked in portrait, floating auto-hide overlay in landscape/fullscreen */}
       <header
-        onClick={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          revealHudTemporarily();
+        }}
         style={{
           transform: 'translateZ(0)',
           backfaceVisibility: 'hidden',
           contain: 'layout paint',
         }}
-        className="relative z-20 shrink-0 h-12 sm:h-14 [@media(max-height:500px)]:h-9 bg-black/95 border-b border-white/10 flex items-center justify-between px-3 sm:px-6"
+        className={`${
+          isImmersiveCinema
+            ? `absolute top-0 inset-x-0 z-30 bg-gradient-to-b from-black/90 via-black/65 to-transparent border-b-0 transition-opacity duration-300 ${
+                hudVisible
+                  ? 'opacity-100 pointer-events-auto'
+                  : 'opacity-0 pointer-events-none'
+              }`
+            : 'relative z-20 shrink-0 bg-black/95 border-b border-white/10'
+        } h-12 sm:h-14 flex items-center justify-between pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] sm:px-6`}
       >
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <span className="font-luxury text-[#FF1E4D] tracking-[0.12em] text-[10px] sm:text-xs font-black uppercase whitespace-nowrap shrink-0">
@@ -725,9 +843,13 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
         </div>
       </header>
 
-      {/* FULL-SCREEN PURE BLACK CINEMA MOVIE STAGE — Zero clutter underneath */}
-      <main className="relative flex-1 w-full bg-black overflow-hidden flex items-center justify-center">
-        {/* Cropped Cinema Frame — Pushes YouTube's top title bar (-top-[60px]) and bottom "Watch on YouTube" / logo banner (+120px height) completely outside the overflow-hidden theatre stage */}
+      {/* FULL-SCREEN PURE BLACK CINEMA MOVIE STAGE — Fills 100% of screen in landscape & fullscreen */}
+      <main
+        className={`${
+          isImmersiveCinema ? 'absolute inset-0 z-10' : 'relative flex-1'
+        } w-full h-full bg-black overflow-hidden flex items-center justify-center`}
+      >
+        {/* In portrait (plenty of vertical height), -top-[56px] hides YouTube chrome cleanly. In landscape/fullscreen, full 100% frame prevents clipping movie top/bottom edges */}
         <div className={`relative w-full h-full overflow-hidden transition-transform duration-200 ${screenFitScaleClass}`}>
           <iframe
             ref={iframeRef}
@@ -736,12 +858,36 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
             onLoad={handleIframeLoad}
             title={movie.title}
             loading="eager"
-            className="absolute inset-x-0 -top-[60px] w-full h-[calc(100%+120px)] border-0 block bg-black [image-rendering:-webkit-optimize-contrast] contrast-[1.03] saturate-[1.04] filter"
+            className={`border-0 block bg-black [image-rendering:-webkit-optimize-contrast] contrast-[1.03] saturate-[1.04] filter ${
+              isImmersiveCinema
+                ? 'absolute inset-0 w-full h-full'
+                : 'absolute inset-x-0 -top-[56px] w-full h-[calc(100%+112px)]'
+            }`}
             referrerPolicy="strict-origin-when-cross-origin"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen; web-share"
             allowFullScreen
           />
         </div>
+
+        {/* Subtle edge tap-to-reveal HUD hotspot & corner controls pill when HUD auto-hides in landscape/fullscreen */}
+        {isImmersiveCinema && !hudVisible && !userExplicitlyPaused && !showShareCard && bingeCountdown === null && (
+          <>
+            <button
+              type="button"
+              onClick={revealHudTemporarily}
+              aria-label="Show player controls"
+              className="absolute top-0 inset-x-0 h-8 z-20 bg-transparent cursor-pointer"
+            />
+            <button
+              type="button"
+              onClick={revealHudTemporarily}
+              className="absolute top-[max(0.65rem,env(safe-area-inset-top))] right-[max(0.75rem,env(safe-area-inset-right))] z-30 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-black/55 hover:bg-black/85 border border-white/20 text-white/85 text-[11px] font-semibold backdrop-blur-sm transition-opacity cursor-pointer"
+            >
+              <SlidersHorizontal className="w-3 h-3 text-[#F59E0B]" />
+              <span>Controls</span>
+            </button>
+          </>
+        )}
 
         {/* Native TK STORYWORLD Paused Cinema Shield — Hides YouTube's pause-screen banners when paused */}
         {userExplicitlyPaused && bingeCountdown === null && !showShareCard && (
@@ -877,13 +1023,24 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
 
       {/* BOTTOM CINEMA CONTROL BAR + INTERACTIVE VIDEO PROGRESS BAR */}
       <footer
-        onClick={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          revealHudTemporarily();
+        }}
         style={{
           transform: 'translateZ(0)',
           backfaceVisibility: 'hidden',
           contain: 'layout paint',
         }}
-        className="relative z-20 shrink-0 bg-black/95 border-t border-white/15 px-3 sm:px-6 pt-2 pb-3 sm:py-2.5 [@media(max-height:500px)]:py-1 flex flex-col gap-1.5 sm:gap-2 [@media(max-height:500px)]:gap-1"
+        className={`${
+          isImmersiveCinema
+            ? `absolute bottom-0 inset-x-0 z-30 bg-gradient-to-t from-black/95 via-black/75 to-transparent border-t-0 transition-opacity duration-300 ${
+                hudVisible
+                  ? 'opacity-100 pointer-events-auto'
+                  : 'opacity-0 pointer-events-none'
+              }`
+            : 'relative z-20 shrink-0 bg-black/95 border-t border-white/15'
+        } pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-2 sm:px-6 sm:py-2.5 flex flex-col gap-1.5 sm:gap-2`}
       >
         {/* ROW 1: INTERACTIVE VIDEO PROGRESS BAR & SCRUBBER TIMELINE */}
         <div className="flex items-center gap-2.5 w-full">
@@ -1074,11 +1231,24 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
             <button
               type="button"
               onClick={() => void toggleFullscreen()}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/15 hover:bg-white/25 text-white text-[11px] font-semibold cursor-pointer whitespace-nowrap"
-              title="Fullscreen Cinema"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#E11D48] hover:bg-[#BE123C] text-white text-[11px] font-semibold cursor-pointer whitespace-nowrap shadow"
+              title={
+                isNativeFullscreen || isMobileTheatreExpanded
+                  ? 'Exit Fullscreen'
+                  : 'Fullscreen Cinema'
+              }
             >
-              <Maximize2 className="w-3.5 h-3.5" />
-              <span>{isMobileTheatreExpanded ? 'Exit' : 'Full'}</span>
+              {isNativeFullscreen || isMobileTheatreExpanded ? (
+                <>
+                  <Minimize2 className="w-3.5 h-3.5" />
+                  <span>Exit Full</span>
+                </>
+              ) : (
+                <>
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span>Full</span>
+                </>
+              )}
             </button>
           </div>
         </div>

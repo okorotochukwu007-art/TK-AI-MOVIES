@@ -10,6 +10,7 @@ import {
   runDiscoveryPipeline,
   verifyCatalogueHealth,
 } from './src/server/youtubeDiscovery.ts';
+import { searchMoviesOutsideApp } from './src/server/movieSearchService.ts';
 import { MovieCategory, MovieItem, MovieSeries } from './src/types/cinema.ts';
 
 dotenv.config();
@@ -191,6 +192,40 @@ app.post('/api/watchlist/toggle', async (req, res) => {
     res.json(result);
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to update watchlist' });
+  }
+});
+
+app.post('/api/movies/smart-search', async (req, res) => {
+  try {
+    const query = String(req.body?.query || '').trim();
+    if (!query || query.length < 2) {
+      return res.status(400).json({ error: 'Please enter at least 2 characters to search for a movie.' });
+    }
+    const existingMovies = await repo.getMovies(false);
+    const existingVideoIds = new Set(existingMovies.map((m) => m.youtubeVideoId));
+    const result = await searchMoviesOutsideApp(query, existingVideoIds);
+    res.json(result);
+  } catch (error: any) {
+    res.status(500).json({
+      error: error?.message || 'Unable to complete global movie search right now.',
+    });
+  }
+});
+
+app.get('/api/movies/smart-search', async (req, res) => {
+  try {
+    const query = String(req.query.q || req.query.query || '').trim();
+    if (!query || query.length < 2) {
+      return res.status(400).json({ error: 'Please enter at least 2 characters to search for a movie.' });
+    }
+    const existingMovies = await repo.getMovies(false);
+    const existingVideoIds = new Set(existingMovies.map((m) => m.youtubeVideoId));
+    const result = await searchMoviesOutsideApp(query, existingVideoIds);
+    res.json(result);
+  } catch (error: any) {
+    res.status(500).json({
+      error: error?.message || 'Unable to complete global movie search right now.',
+    });
   }
 });
 

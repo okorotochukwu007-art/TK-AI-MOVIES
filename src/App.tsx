@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { AdminDashboard } from './components/AdminDashboard.tsx';
 import { CinemaPosterImage } from './components/CinemaPosterImage.tsx';
+import { CinemaSmartSearch } from './components/CinemaSmartSearch.tsx';
 import {
   DeviceDownloadedMovieItem,
   DownloadMovieModal,
@@ -222,6 +223,7 @@ export default function App() {
     useState<CategoryDisplayMode>('grouped');
   const [sortBy, setSortBy] = useState<SortOption>('popularity');
   const [searchQuery, setSearchQuery] = useState('');
+  const smartSearchInputRef = useRef<HTMLInputElement | null>(null);
 
   // Active Movie Player / Details Modal state
   const [activeModalMovie, setActiveModalMovie] = useState<{
@@ -1292,6 +1294,34 @@ export default function App() {
     return list;
   }, [movies, selectedCategory, categoryMoviesMap, searchQuery, sortMoviesList]);
 
+  const homeSearchMatches = useMemo(() => {
+    const clean = searchQuery.trim().toLowerCase();
+    if (!clean) return [];
+    const matched = movies.filter(
+      (m) =>
+        m.title.toLowerCase().includes(clean) ||
+        m.synopsis.toLowerCase().includes(clean) ||
+        m.channelTitle.toLowerCase().includes(clean) ||
+        m.primaryCategory.toLowerCase().includes(clean) ||
+        m.secondaryCategories.some((c) => c.toLowerCase().includes(clean)) ||
+        (m.hookTag ? m.hookTag.toLowerCase().includes(clean) : false)
+    );
+    return sortMoviesList(matched);
+  }, [movies, searchQuery, sortMoviesList]);
+
+  const focusVisibleSearchBar = useCallback(() => {
+    if (activeView !== 'home' && activeView !== 'categories') {
+      setActiveView('home');
+    }
+    window.setTimeout(() => {
+      smartSearchInputRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+      smartSearchInputRef.current?.focus();
+    }, 80);
+  }, [activeView]);
+
   const renderMovieCard = (movie: MovieItem, isHorizontalMobile = false) => {
     const savedProgress = progressMap.get(movie.id);
     const inList = watchlistIds.has(movie.id);
@@ -1605,12 +1635,9 @@ export default function App() {
           {/* Quick 1-Tap Search Button for Mobile & Desktop */}
           <button
             type="button"
-            onClick={() => {
-              setPendingMovieAfterAuth(null);
-              setShowSearchAndAccountModal(true);
-            }}
+            onClick={focusVisibleSearchBar}
             className="p-2.5 rounded-xl bg-[#0E1118] hover:bg-[#171C28] border border-white/15 text-slate-200 hover:text-white transition-colors cursor-pointer"
-            title="Search 675+ Movies & Actors"
+            title="Search Movies on App & Outside App"
             aria-label="Search Movies"
           >
             <Search className="w-4 h-4 text-slate-200" />
@@ -2691,17 +2718,6 @@ export default function App() {
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
-                <div className="relative">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Filter movies, genres, or creators..."
-                    className="pl-9 pr-4 py-2 rounded-lg bg-[#0E1118] border border-white/15 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-[#E11D48]"
-                  />
-                </div>
-
                 {/* Display Mode Toggle when viewing All Categories */}
                 {selectedCategory === 'All Categories' && !searchQuery.trim() && (
                   <div className="flex items-center gap-1 p-1 rounded-lg bg-[#0E1118] border border-white/10">
@@ -2750,6 +2766,22 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            {/* VISIBLE SMART MOVIE SEARCH BAR (IN-APP + OUTSIDE-THE-APP EXPLORER) ON CATEGORY PAGE */}
+            <CinemaSmartSearch
+              query={searchQuery}
+              onQueryChange={setSearchQuery}
+              inAppMatches={filteredCategoryMovies}
+              allAppMoviesCount={movies.length}
+              watchlistIds={watchlistIds}
+              onPlayMovie={(mov) => openMovieModal(mov, true)}
+              onDownloadMovie={(mov) => setDownloadModalMovie(mov)}
+              onToggleWatchlist={(movieId) => void handleToggleWatchlist(movieId)}
+              variant="categories"
+              categoryLabel={selectedCategory}
+              inputRef={activeView === 'categories' ? smartSearchInputRef : undefined}
+              renderInAppCard={(mov) => renderMovieCard(mov)}
+            />
 
             {/* Interactive 12-Category Segmented Selector with Live Genre Counts */}
             <div className="flex flex-wrap items-center gap-2">
@@ -2853,30 +2885,54 @@ export default function App() {
                 })}
               </div>
             ) : filteredCategoryMovies.length === 0 ? (
-              <div className="rounded-2xl bg-[#0E1118] border border-white/10 p-12 text-center space-y-3">
-                <p className="text-sm text-slate-300">
-                  No movies found matching "{selectedCategory}"{' '}
-                  {searchQuery ? `and "${searchQuery}"` : ''}.
+              <div className="rounded-xl bg-[#0E1118] border border-white/10 px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <p className="text-xs sm:text-sm text-slate-300">
+                  No exact in-app match inside "{selectedCategory}"
+                  {searchQuery ? ` for "${searchQuery}"` : ''} — explore global results above or reset category filter.
                 </p>
                 <button
                   onClick={() => {
                     setSelectedCategory('All Categories');
                     setSearchQuery('');
                   }}
-                  className="px-4 py-2 rounded-lg bg-[#E11D48] text-white text-xs font-semibold cursor-pointer"
+                  className="px-4 py-2 rounded-lg bg-[#E11D48] text-white text-xs font-semibold cursor-pointer self-start sm:self-auto shrink-0"
                 >
                   Reset Filters
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                {filteredCategoryMovies.map((m) => renderMovieCard(m))}
+              <div className="space-y-4">
+                {searchQuery.trim() && (
+                  <h2 className="font-display text-lg font-bold text-white">
+                    On TK STORYWORLD ({selectedCategory}) Matching "{searchQuery.trim()}" ({filteredCategoryMovies.length})
+                  </h2>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                  {filteredCategoryMovies.map((m) => renderMovieCard(m))}
+                </div>
               </div>
             )}
           </section>
         ) : (
           /* HOME VIEW: NETFLIX-STYLE STREAMING INTERFACE ARRANGED BY GENRE */
-          <div className="space-y-12 pb-16">
+          <div className="space-y-10 pb-16">
+            {/* VISIBLE SMART MOVIE SEARCH BAR (IN-APP + OUTSIDE-THE-APP EXPLORER) ON HOME PAGE */}
+            <section className="max-w-[1400px] mx-auto px-5 sm:px-10 pt-5">
+              <CinemaSmartSearch
+                query={searchQuery}
+                onQueryChange={setSearchQuery}
+                inAppMatches={homeSearchMatches}
+                allAppMoviesCount={movies.length}
+                watchlistIds={watchlistIds}
+                onPlayMovie={(mov) => openMovieModal(mov, true)}
+                onDownloadMovie={(mov) => setDownloadModalMovie(mov)}
+                onToggleWatchlist={(movieId) => void handleToggleWatchlist(movieId)}
+                variant="home"
+                inputRef={activeView === 'home' ? smartSearchInputRef : undefined}
+                renderInAppCard={(mov) => renderMovieCard(mov)}
+              />
+            </section>
+
             {/* 1. CINEMATIC RECENT 2026 MOVIE HERO BANNER */}
             {featuredMovie && (
               <section className="relative w-full min-h-[560px] lg:min-h-[650px] flex items-end overflow-hidden border-b border-white/10 bg-[#050505]">

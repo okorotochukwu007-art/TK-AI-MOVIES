@@ -25,7 +25,6 @@ import {
   Share2,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   Trash2,
   User,
   WifiOff,
@@ -1507,7 +1506,7 @@ export default function App() {
           TK STORYWORLD
         </a>
 
-        {/* Zone 2: 5 concise single-line text navigation links */}
+        {/* Zone 2: Concise single-line text navigation links */}
         <nav className="hidden md:flex items-center gap-7 text-sm font-medium text-slate-300">
           <a
             href="#home"
@@ -1522,34 +1521,6 @@ export default function App() {
             }`}
           >
             Home
-          </a>
-          <a
-            href="#nigerian"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveView('nigerian');
-            }}
-            className={`hover:text-white transition-colors whitespace-nowrap shrink-0 ${
-              activeView === 'nigerian'
-                ? 'text-[#F59E0B] underline underline-offset-8 decoration-[#F59E0B] decoration-2 font-semibold'
-                : 'text-[#F59E0B]/90'
-            }`}
-          >
-            Nigerian AI Movies
-          </a>
-          <a
-            href="#series"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveView('series');
-            }}
-            className={`hover:text-white transition-colors whitespace-nowrap shrink-0 ${
-              activeView === 'series'
-                ? 'text-white underline underline-offset-8 decoration-[#E11D48] decoration-2'
-                : ''
-            }`}
-          >
-            Series
           </a>
           <a
             href="#categories"
@@ -1674,7 +1645,6 @@ export default function App() {
       <div className={`sticky top-[65px] z-30 flex md:hidden items-center justify-around px-2 py-2 bg-[#0A0C12]/95 backdrop-blur-md border-b border-white/10 text-xs font-medium text-slate-300 overflow-x-auto no-scrollbar ${activeModalMovie ? 'hidden' : ''}`}>
         {[
           { id: 'home', label: 'Home' },
-          { id: 'nigerian', label: 'Nigerian AI' },
           {
             id: 'saved',
             label:
@@ -1682,7 +1652,6 @@ export default function App() {
                 ? `Saved Movies (${deviceDownloads.length})`
                 : 'Saved Movies',
           },
-          { id: 'series', label: 'Series' },
           { id: 'categories', label: 'Categories' },
           { id: 'watchlist', label: 'Watchlist' },
           ...(isAdminAuthenticated ? [{ id: 'admin', label: 'Admin' }] : []),
@@ -3962,22 +3931,16 @@ export default function App() {
           </div>
           <div className="flex flex-wrap items-center justify-center gap-5 sm:gap-6">
             <button
-              onClick={() => setActiveView('nigerian')}
-              className="hover:text-slate-300 cursor-pointer"
-            >
-              Nigerian AI Movies
-            </button>
-            <button
               onClick={() => setActiveView('categories')}
               className="hover:text-slate-300 cursor-pointer"
             >
               12 Genres
             </button>
             <button
-              onClick={() => setActiveView('series')}
+              onClick={() => setActiveView('saved')}
               className="hover:text-slate-300 cursor-pointer"
             >
-              Complete Series
+              Saved Movies
             </button>
             {isAdminAuthenticated && (
               <button
@@ -4019,17 +3982,17 @@ export default function App() {
         <button
           type="button"
           onClick={() => {
-            setActiveView('nigerian');
+            setActiveView('saved');
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
           className={`flex flex-col items-center justify-center gap-0.5 py-1 px-2.5 rounded-xl text-[10px] font-medium transition-colors cursor-pointer ${
-            activeView === 'nigerian'
-              ? 'text-[#F59E0B] font-bold'
+            activeView === 'saved'
+              ? 'text-emerald-400 font-bold'
               : 'text-slate-400'
           }`}
         >
-          <Sparkles className="w-4 h-4" />
-          <span>Nigerian AI</span>
+          <Download className="w-4 h-4" />
+          <span>Saved</span>
         </button>
 
         <button
@@ -4046,22 +4009,6 @@ export default function App() {
         >
           <Layers className="w-4 h-4" />
           <span>Genres</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setActiveView('series');
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
-          className={`flex flex-col items-center justify-center gap-0.5 py-1 px-2.5 rounded-xl text-[10px] font-medium transition-colors cursor-pointer ${
-            activeView === 'series'
-              ? 'text-[#E11D48] font-bold'
-              : 'text-slate-400'
-          }`}
-        >
-          <Play className="w-4 h-4" />
-          <span>Series</span>
         </button>
 
         {isAdminAuthenticated ? (

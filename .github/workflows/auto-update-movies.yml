@@ -28,14 +28,11 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install Runner Tooling
-        run: npm install --no-save --no-audit --no-fund tsx
-
-      - name: Run Auto Discovery & Movie Sync
+      - name: Run Auto Discovery & Movie Sync (2026 Only)
         env:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: npx tsx scripts/autoSyncMovies.ts
+        run: node --experimental-strip-types scripts/autoSyncMovies.ts
 
       - name: Commit and Push if Changed
         run: |
@@ -43,8 +40,8 @@ jobs:
           git config --global user.email "okorotochukwu007@gmail.com"
           git add data/aetheria-db.json
           if ! git diff --staged --quiet; then
-            git commit -m "chore(catalogue): auto-update movies catalogue"
-            git pull --rebase --autostash origin main || true
+            git commit -m "chore(catalogue): auto-update 2026 movies catalogue"
+            git pull --rebase --autostash origin main
             git push origin main
           else
             echo "Catalogue is up to date, no changes to commit."

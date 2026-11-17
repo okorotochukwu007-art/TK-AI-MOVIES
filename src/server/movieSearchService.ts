@@ -280,10 +280,102 @@ interface ItunesMovieRecord {
   trackTimeMillis?: number;
 }
 
+interface ImdbSuggestionItem {
+  id: string;
+  l: string;
+  q?: string;
+  qid?: string;
+  rank?: number;
+  s?: string;
+  y?: number;
+  i?: {
+    imageUrl?: string;
+  };
+}
+
+interface WikiFilmPage {
+  pageid: number;
+  title: string;
+  index?: number;
+  extract?: string;
+  thumbnail?: {
+    source?: string;
+  };
+}
+
+async function fetchImdbMovieSuggestions(term: string): Promise<ImdbSuggestionItem[]> {
+  try {
+    const normalized = term
+      .toLowerCase()
+      .replace(/\b(movie|movies|film|films|full|watch)\b/g, ' ')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    if (!normalized || !/[a-z0-9]/.test(normalized[0])) return [];
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3500);
+    const url = `https://v3.sg.media-imdb.com/suggestion/${normalized[0]}/${encodeURIComponent(
+      normalized
+    )}.json`;
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TKStoryworld/1.0)' },
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return [];
+    const json = (await res.json()) as { d?: ImdbSuggestionItem[] };
+    const list = Array.isArray(json.d) ? json.d : [];
+    return list.filter(
+      (item) =>
+        item.l &&
+        (item.qid === 'movie' ||
+          item.q === 'feature' ||
+          item.qid === 'tvMovie' ||
+          (item.id?.startsWith('tt') && item.qid !== 'tvSeries' && item.qid !== 'videoGame'))
+    );
+  } catch {
+    return [];
+  }
+}
+
+async function fetchWikipediaFilmPages(term: string): Promise<WikiFilmPage[]> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const hasFilmWord = /\b(film|movie|cinema|anime)\b/i.test(term);
+    const searchQuery = hasFilmWord ? term : `${term} film`;
+    const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(
+      searchQuery
+    )}&gsrlimit=8&prop=pageimages|extracts&exintro=1&explaintext=1&exsentences=3&piprop=thumbnail&pithumbsize=600&format=json&origin=*`;
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'TKStoryworldMovieSearch/1.0' },
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return [];
+    const json = (await res.json()) as {
+      query?: { pages?: Record<string, WikiFilmPage> };
+    };
+    const pages = json?.query?.pages ? Object.values(json.query.pages) : [];
+    return pages
+      .sort((a, b) => (a.index ?? 99) - (b.index ?? 99))
+      .filter((p) => {
+        const tl = (p.title || '').toLowerCase();
+        const el = (p.extract || '').toLowerCase();
+        if (tl.includes('(soundtrack)') || tl.includes('(disambiguation)')) return false;
+        return /\b(film|movie|cinema|animated|thriller|drama|comedy|horror|sci-fi|nollywood|bollywood|anime|directed by|starring)\b/.test(
+          `${tl} ${el}`
+        );
+      });
+  } catch {
+    return [];
+  }
+}
+
 async function fetchItunesMovieMetadata(term: string): Promise<ItunesMovieRecord[]> {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4500);
+    const timeout = setTimeout(() => controller.abort(), 3500);
     const url = `https://itunes.apple.com/search?term=${encodeURIComponent(
       term
     )}&media=movie&entity=movie&limit=8&country=US`;
@@ -325,6 +417,7 @@ async function searchYouTubeRawCandidates(
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9',
+        Cookie: 'SOCS=CAESEwgDEgk0ODE3Nzk3MjQaAmVuIAEaBgiA_LyaBg; CONSENT=YES+cb',
       },
     });
     clearTimeout(timeout);
@@ -413,15 +506,17 @@ export async function searchMoviesOutsideApp(
     };
   }
 
-  // Run Gemini strict movie intelligence & Apple iTunes official movie index in parallel
-  const [geminiResult, itunesRecords] = await Promise.all([
+  // Run Gemini strict movie intelligence + IMDb + Wikipedia + Apple iTunes in parallel
+  const [geminiResult, imdbRecords, wikiPages, itunesRecords] = await Promise.all([
     analyzeQueryWithGemini(query),
+    fetchImdbMovieSuggestions(query),
+    fetchWikipediaFilmPages(query),
     fetchItunesMovieMetadata(query),
   ]);
 
   if (!geminiResult.ok) {
-    // Propagate explicit intelligence notice, while checking if iTunes official movie database has verified movie matches
-    if (itunesRecords.length === 0) {
+    // Only fail if ALL cinema intelligence sources returned nothing
+    if (imdbRecords.length === 0 && wikiPages.length === 0 && itunesRecords.length === 0) {
       throw new Error(geminiResult.error);
     }
   }
@@ -452,7 +547,9 @@ export async function searchMoviesOutsideApp(
     };
   }
 
-  // Build Recognized Popular Movie card (enriching Gemini with official iTunes artwork/runtime if matching)
+  // Build Recognized Popular Movie card (enriching Gemini with IMDb, Wikipedia & iTunes artwork/runtime)
+  const topImdbMatch = imdbRecords[0];
+  const topWikiMatch = wikiPages[0];
   const topItunesMatch = itunesRecords.find(
     (rec) =>
       rec.trackName &&
@@ -461,19 +558,29 @@ export async function searchMoviesOutsideApp(
         aiData.canonicalTitle.toLowerCase().includes(rec.trackName.toLowerCase()))
   ) || itunesRecords[0];
 
-  const hiResPoster = topItunesMatch?.artworkUrl100
-    ? topItunesMatch.artworkUrl100.replace('100x100bb', '600x600bb')
-    : undefined;
+  const hiResPoster =
+    topImdbMatch?.i?.imageUrl ||
+    (topItunesMatch?.artworkUrl100
+      ? topItunesMatch.artworkUrl100.replace('100x100bb', '600x600bb')
+      : undefined) ||
+    topWikiMatch?.thumbnail?.source;
+
+  const wikiYearMatch = (topWikiMatch?.extract || '').match(/\b(19\d{2}|20[0-2]\d)\b/);
 
   const recognizedMovie: RecognizedPopularMovie | null = aiData
     ? {
         canonicalTitle:
-          aiData.canonicalTitle || topItunesMatch?.trackName || query,
+          aiData.canonicalTitle ||
+          topImdbMatch?.l ||
+          topItunesMatch?.trackName ||
+          topWikiMatch?.title?.replace(/\s*\([^)]*film[^)]*\)/i, '') ||
+          query,
         releaseYear:
           aiData.releaseYear ||
-          (topItunesMatch?.releaseDate
-            ? topItunesMatch.releaseDate.slice(0, 4)
-            : ''),
+          (topImdbMatch?.y ? String(topImdbMatch.y) : '') ||
+          (topItunesMatch?.releaseDate ? topItunesMatch.releaseDate.slice(0, 4) : '') ||
+          wikiYearMatch?.[1] ||
+          '',
         primaryGenre:
           aiData.primaryGenre || topItunesMatch?.primaryGenreName || 'Feature Film',
         allGenres:
@@ -482,9 +589,10 @@ export async function searchMoviesOutsideApp(
             : [topItunesMatch?.primaryGenreName || 'Cinema'],
         directorOrStudio:
           aiData.directorOrStudio || topItunesMatch?.artistName || '',
-        castHighlights: aiData.castHighlights || '',
+        castHighlights: aiData.castHighlights || topImdbMatch?.s || '',
         synopsis:
           aiData.synopsis ||
+          topWikiMatch?.extract ||
           topItunesMatch?.longDescription ||
           topItunesMatch?.shortDescription ||
           '',
@@ -492,25 +600,36 @@ export async function searchMoviesOutsideApp(
         runtimeLabel: topItunesMatch?.trackTimeMillis
           ? formatDurationSeconds(Math.round(topItunesMatch.trackTimeMillis / 1000))
           : undefined,
-        isPopularMovie: Boolean(aiData.isPopularMovie),
+        isPopularMovie: Boolean(
+          aiData.isPopularMovie || (topImdbMatch?.rank && topImdbMatch.rank < 200000)
+        ),
         detectedIntent:
           (aiData.detectedIntent as RecognizedPopularMovie['detectedIntent']) ||
           (aiData.isPopularMovie ? 'popular_movie' : 'genre_or_mood'),
       }
-    : topItunesMatch
+    : topImdbMatch || topItunesMatch || topWikiMatch
     ? {
-        canonicalTitle: topItunesMatch.trackName || query,
-        releaseYear: topItunesMatch.releaseDate?.slice(0, 4) || '',
-        primaryGenre: topItunesMatch.primaryGenreName || 'Feature Film',
-        allGenres: [topItunesMatch.primaryGenreName || 'Cinema'],
-        directorOrStudio: topItunesMatch.artistName || '',
-        castHighlights: '',
-        synopsis:
-          topItunesMatch.longDescription ||
-          topItunesMatch.shortDescription ||
+        canonicalTitle:
+          topImdbMatch?.l ||
+          topItunesMatch?.trackName ||
+          topWikiMatch?.title?.replace(/\s*\([^)]*film[^)]*\)/i, '') ||
+          query,
+        releaseYear:
+          (topImdbMatch?.y ? String(topImdbMatch.y) : '') ||
+          topItunesMatch?.releaseDate?.slice(0, 4) ||
+          wikiYearMatch?.[1] ||
           '',
+        primaryGenre: topItunesMatch?.primaryGenreName || 'Feature Film',
+        allGenres: [topItunesMatch?.primaryGenreName || 'Cinema'],
+        directorOrStudio: topItunesMatch?.artistName || '',
+        castHighlights: topImdbMatch?.s || '',
+        synopsis:
+          topWikiMatch?.extract ||
+          topItunesMatch?.longDescription ||
+          topItunesMatch?.shortDescription ||
+          `Popular movie matching "${query}".`,
         posterUrl: hiResPoster,
-        runtimeLabel: topItunesMatch.trackTimeMillis
+        runtimeLabel: topItunesMatch?.trackTimeMillis
           ? formatDurationSeconds(Math.round(topItunesMatch.trackTimeMillis / 1000))
           : undefined,
         isPopularMovie: true,
@@ -645,11 +764,12 @@ export async function searchMoviesOutsideApp(
     (item): item is OutsideAppMovieResult => item !== null
   );
 
-  // Merge AI related popular movies + extra iTunes movie discoveries for rich outside-app exploration
+  // Merge AI related popular movies + IMDb + Wikipedia + iTunes movie discoveries
   const relatedMap = new Map<string, SmartMovieSuggestion>();
   for (const rel of aiData?.relatedPopularMovies || []) {
     const key = rel.title.toLowerCase().trim();
     if (!key) continue;
+    const matchedImdb = imdbRecords.find((m) => m.l.toLowerCase().includes(key));
     const matchedPoster = itunesRecords.find(
       (r) => r.trackName && r.trackName.toLowerCase().includes(key)
     )?.artworkUrl100;
@@ -660,9 +780,41 @@ export async function searchMoviesOutsideApp(
       synopsis: rel.synopsis,
       whySimilar: rel.whySimilar,
       youtubeQuery: rel.youtubeQuery || `${rel.title} full movie`,
-      posterUrl: matchedPoster
-        ? matchedPoster.replace('100x100bb', '600x600bb')
-        : undefined,
+      posterUrl:
+        matchedImdb?.i?.imageUrl ||
+        (matchedPoster ? matchedPoster.replace('100x100bb', '600x600bb') : undefined),
+    });
+  }
+
+  for (const m of imdbRecords.slice(0, 6)) {
+    const title = m.l?.trim();
+    if (!title) continue;
+    const key = title.toLowerCase();
+    if (key === primaryTitle.toLowerCase().trim() || relatedMap.has(key)) continue;
+    relatedMap.set(key, {
+      title,
+      year: m.y ? String(m.y) : '',
+      genre: recognizedMovie?.primaryGenre || 'Feature Film',
+      synopsis: m.s ? `Starring ${m.s}.` : `Popular global movie matching "${query}".`,
+      whySimilar: `Matches "${query}" across global cinema`,
+      youtubeQuery: `${title} ${m.y || ''} full movie`.trim(),
+      posterUrl: m.i?.imageUrl,
+    });
+  }
+
+  for (const p of wikiPages.slice(0, 5)) {
+    const title = p.title.replace(/\s*\([^)]*film[^)]*\)/i, '').trim();
+    const key = title.toLowerCase();
+    if (!title || key === primaryTitle.toLowerCase().trim() || relatedMap.has(key)) continue;
+    const yr = p.extract?.match(/\b(19\d{2}|20[0-2]\d)\b/)?.[1] || '';
+    relatedMap.set(key, {
+      title,
+      year: yr,
+      genre: recognizedMovie?.primaryGenre || 'Feature Film',
+      synopsis: (p.extract || '').slice(0, 200),
+      whySimilar: `Related film matching "${query}"`,
+      youtubeQuery: `${title} ${yr} full movie`.trim(),
+      posterUrl: p.thumbnail?.source,
     });
   }
 

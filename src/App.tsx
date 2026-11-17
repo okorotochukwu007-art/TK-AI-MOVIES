@@ -1273,6 +1273,58 @@ export default function App() {
     sortMoviesList,
   ]);
 
+  const matchesSmartMovieQuery = useCallback((m: MovieItem, rawQuery: string) => {
+    const clean = rawQuery.trim().toLowerCase();
+    if (!clean) return true;
+    const haystack = [
+      m.title,
+      m.synopsis,
+      m.channelTitle,
+      m.primaryCategory,
+      ...(m.secondaryCategories || []),
+      m.hookTag || '',
+    ]
+      .join(' ')
+      .toLowerCase();
+
+    if (haystack.includes(clean)) return true;
+
+    const filler = new Set([
+      'movie',
+      'movies',
+      'film',
+      'films',
+      'full',
+      'watch',
+      'stream',
+      'download',
+      'hd',
+      'free',
+      'latest',
+      'best',
+    ]);
+    const synonymMap: Record<string, string> = {
+      scifi: 'sci-fi',
+      nolly: 'nigerian',
+      nollywood: 'nigerian',
+      cartoon: 'animated',
+      animation: 'animated',
+      love: 'romance',
+      romantic: 'romance',
+      funny: 'comedy',
+      scary: 'horror',
+    };
+
+    const rawTokens = clean.split(/[\s,]+/).filter((t) => t.length >= 2);
+    const meaningful = rawTokens
+      .filter((t) => !filler.has(t))
+      .map((t) => synonymMap[t] || t);
+    const tokens = meaningful.length > 0 ? meaningful : rawTokens;
+    if (tokens.length === 0) return false;
+
+    return tokens.every((tok) => haystack.includes(tok));
+  }, []);
+
   const filteredCategoryMovies = useMemo(() => {
     let list =
       selectedCategory === 'All Categories'
@@ -1280,33 +1332,16 @@ export default function App() {
         : [...(categoryMoviesMap[selectedCategory] || [])];
 
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      list = list.filter(
-        (m) =>
-          m.title.toLowerCase().includes(q) ||
-          m.synopsis.toLowerCase().includes(q) ||
-          m.channelTitle.toLowerCase().includes(q) ||
-          m.primaryCategory.toLowerCase().includes(q) ||
-          m.secondaryCategories.some((c) => c.toLowerCase().includes(q))
-      );
+      list = list.filter((m) => matchesSmartMovieQuery(m, searchQuery));
     }
     return list;
-  }, [movies, selectedCategory, categoryMoviesMap, searchQuery, sortMoviesList]);
+  }, [movies, selectedCategory, categoryMoviesMap, searchQuery, sortMoviesList, matchesSmartMovieQuery]);
 
   const homeSearchMatches = useMemo(() => {
-    const clean = searchQuery.trim().toLowerCase();
-    if (!clean) return [];
-    const matched = movies.filter(
-      (m) =>
-        m.title.toLowerCase().includes(clean) ||
-        m.synopsis.toLowerCase().includes(clean) ||
-        m.channelTitle.toLowerCase().includes(clean) ||
-        m.primaryCategory.toLowerCase().includes(clean) ||
-        m.secondaryCategories.some((c) => c.toLowerCase().includes(clean)) ||
-        (m.hookTag ? m.hookTag.toLowerCase().includes(clean) : false)
-    );
+    if (!searchQuery.trim()) return [];
+    const matched = movies.filter((m) => matchesSmartMovieQuery(m, searchQuery));
     return sortMoviesList(matched);
-  }, [movies, searchQuery, sortMoviesList]);
+  }, [movies, searchQuery, sortMoviesList, matchesSmartMovieQuery]);
 
   const focusVisibleSearchBar = useCallback(() => {
     if (activeView !== 'home' && activeView !== 'categories') {
@@ -1317,8 +1352,8 @@ export default function App() {
         behavior: 'smooth',
         block: 'center',
       });
-      smartSearchInputRef.current?.focus();
-    }, 80);
+      smartSearchInputRef.current?.focus({ preventScroll: true });
+    }, 140);
   }, [activeView]);
 
   const renderMovieCard = (movie: MovieItem, isHorizontalMobile = false) => {
@@ -2886,7 +2921,7 @@ export default function App() {
           /* HOME VIEW: NETFLIX-STYLE STREAMING INTERFACE ARRANGED BY GENRE */
           <div className="space-y-10 pb-16">
             {/* VISIBLE SMART MOVIE SEARCH BAR (IN-APP + OUTSIDE-THE-APP EXPLORER) ON HOME PAGE */}
-            <section className="max-w-[1400px] mx-auto px-5 sm:px-10 pt-5">
+            <section className="max-w-[1400px] mx-auto px-5 sm:px-10 pt-5 scroll-mt-32">
               <CinemaSmartSearch
                 query={searchQuery}
                 onQueryChange={setSearchQuery}

@@ -87,7 +87,35 @@ const EXPLORE_MOVIE_SHORTCUTS = [
 ];
 
 const NON_MOVIE_LOCAL_REGEX =
-  /\b(recipe|how to cook|bitcoin|crypto|forex|weather|python tutorial|javascript tutorial|football highlights|premier league table|song lyrics|mp3 download)\b/i;
+  /\b(recipe|how to cook|cook rice|bake cake|bitcoin|crypto price|forex|weather|python tutorial|javascript tutorial|football highlights|premier league table|song lyrics|mp3 download|stock price)\b/i;
+
+function inferGenreBrowser(text: string): { primary: string; all: string[] } {
+  const lower = text.toLowerCase();
+  const matched: string[] = [];
+  if (/\b(sci-fi|science fiction|cyberpunk|space|dystopian)\b/.test(lower)) matched.push('Sci-Fi');
+  if (/\b(action|martial arts|heist|spy|assassin|superhero)\b/.test(lower)) matched.push('Action');
+  if (/\b(horror|slasher|supernatural|haunted|zombie)\b/.test(lower)) matched.push('Horror');
+  if (/\b(thriller|mystery|suspense|crime|noir)\b/.test(lower)) matched.push('Thriller');
+  if (/\b(comedy|rom-com|satire|parody)\b/.test(lower)) matched.push('Comedy');
+  if (/\b(romance|romantic|love story)\b/.test(lower)) matched.push('Romance');
+  if (/\b(anime|animated|animation)\b/.test(lower)) matched.push('Animation');
+  if (/\b(fantasy|epic|mytholog)\b/.test(lower)) matched.push('Fantasy');
+  if (/\b(nigerian|nollywood|yoruba|african)\b/.test(lower)) matched.push('Nollywood');
+  if (/\b(korean|k-drama|bollywood|indian|japanese)\b/.test(lower)) matched.push('World Cinema');
+  if (/\b(drama|biographical|historical)\b/.test(lower)) matched.push('Drama');
+  if (matched.length === 0) return { primary: 'Feature Film', all: ['Feature Film', 'Global Cinema'] };
+  return { primary: matched[0], all: matched.slice(0, 4) };
+}
+
+async function fetchJsonAbortable(url: string, init: RequestInit = {}, timeoutMs = 8000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
 
 export const CinemaSmartSearch: React.FC<CinemaSmartSearchProps> = ({
   query,
@@ -112,45 +140,21 @@ export const CinemaSmartSearch: React.FC<CinemaSmartSearchProps> = ({
 
   const activeRequestIdRef = useRef(0);
   const lastFetchedQueryRef = useRef('');
+  const resultsSectionRef = useRef<HTMLDivElement | null>(null);
+  const localInputRef = useRef<HTMLInputElement | null>(null);
 
-  const runOutsideSearch = useCallback(async (searchTerm: string) => {
-    const clean = searchTerm.trim();
-    if (clean.length < 2) {
-      setOutsideResult(null);
-      setOutsideError(null);
-      setIsSearchingOutside(false);
-      return;
-    }
-
-    const reqId = ++activeRequestIdRef.current;
-    lastFetchedQueryRef.current = clean;
-    setIsSearchingOutside(true);
-    setOutsideError(null);
-
-    try {
-      const res = await fetch('/api/movies/smart-search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: clean }),
-      });
-
-      const contentType = res.headers.get('content-type') || '';
-
-      if (contentType.includes('application/json')) {
-        const data = await res.json();
-        if (reqId !== activeRequestIdRef.current) return;
-        if (!res.ok) {
-          setOutsideError(
-            data?.error || 'Could not search global movies right now.'
-          );
-          setOutsideResult(null);
-          return;
-        }
-        setOutsideResult(data as SmartMovieSearchResponse);
-        return;
+  const setCombinedInputRef = useCallback(
+    (node: HTMLInputElement | null) => {
+      localInputRef.current = node;
+      if (inputRef) {
+        (inputRef as React.MutableRefObject<HTMLInputElement | null>).current = node;
       }
+    },
+    [inputRef]
+  );
 
-      // Static edge hosting fallback (e.g., Cloudflare Pages when /api/* is unavailable)
+  const runBrowserCinemaFallback = useCallback(
+    async (clean: string, reqId: number) => {
       if (NON_MOVIE_LOCAL_REGEX.test(clean)) {
         if (reqId !== activeRequestIdRef.current) return;
         setOutsideResult({
@@ -165,74 +169,239 @@ export const CinemaSmartSearch: React.FC<CinemaSmartSearchProps> = ({
         return;
       }
 
-      const itunesRes = await fetch(
-        `https://itunes.apple.com/search?term=${encodeURIComponent(
-          clean
-        )}&media=movie&entity=movie&limit=8&country=US`
-      );
-      if (itunesRes.ok) {
-        const itunesJson = await itunesRes.json();
-        if (reqId !== activeRequestIdRef.current) return;
-        const rows = Array.isArray(itunesJson?.results)
-          ? itunesJson.results
-          : [];
-        const top = rows[0];
+      const hasMovieWord = /\b(film|movie|cinema|anime)\b/i.test(clean);
+      const wikiTerm = hasMovieWord ? clean : `${clean} film`;
+      const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(
+        wikiTerm
+      )}&gsrlimit=10&prop=pageimages|extracts&exintro=1&explaintext=1&exsentences=3&piprop=thumbnail&pithumbsize=600&format=json&origin=*`;
+
+      const [wikiRes, itunesRes] = await Promise.allSettled([
+        fetchJsonAbortable(wikiUrl, {}, 6000),
+        fetchJsonAbortable(
+          `https://itunes.apple.com/search?term=${encodeURIComponent(
+            clean
+          )}&media=movie&entity=movie&limit=8&country=US`,
+          {},
+          4000
+        ),
+      ]);
+
+      if (reqId !== activeRequestIdRef.current) return;
+
+      let wikiPages: Array<{
+        title: string;
+        index?: number;
+        extract?: string;
+        thumbnail?: { source?: string };
+      }> = [];
+
+      if (wikiRes.status === 'fulfilled' && wikiRes.value.ok) {
+        try {
+          const wJson = await wikiRes.value.json();
+          const pagesObj = wJson?.query?.pages;
+          if (pagesObj && typeof pagesObj === 'object') {
+            wikiPages = (Object.values(pagesObj) as any[])
+              .sort((a, b) => (a.index ?? 99) - (b.index ?? 99))
+              .filter((p) => {
+                const tl = String(p.title || '').toLowerCase();
+                const el = String(p.extract || '').toLowerCase();
+                if (tl.includes('(soundtrack)') || tl.includes('(disambiguation)')) {
+                  return false;
+                }
+                return /\b(film|movie|cinema|animated|thriller|drama|comedy|horror|sci-fi|nollywood|bollywood|anime|directed by|starring|release|box office)\b/.test(
+                  `${tl} ${el}`
+                );
+              });
+          }
+        } catch {
+          // ignore parse error
+        }
+      }
+
+      let itunesRows: any[] = [];
+      if (itunesRes.status === 'fulfilled' && itunesRes.value.ok) {
+        try {
+          const iJson = await itunesRes.value.json();
+          if (Array.isArray(iJson?.results)) {
+            itunesRows = iJson.results;
+          }
+        } catch {
+          // ignore parse error
+        }
+      }
+
+      const topWiki = wikiPages[0];
+      const topItunes = itunesRows[0];
+
+      if (!topWiki && !topItunes) {
+        const fallbackGenres = inferGenreBrowser(clean);
         setOutsideResult({
           query: clean,
           isMovieQuery: true,
           rejectionReason: null,
-          recognizedMovie: top
-            ? {
-                canonicalTitle: top.trackName || clean,
-                releaseYear: top.releaseDate
-                  ? String(top.releaseDate).slice(0, 4)
-                  : '',
-                primaryGenre: top.primaryGenreName || 'Feature Film',
-                allGenres: [top.primaryGenreName || 'Cinema'],
-                directorOrStudio: top.artistName || '',
-                castHighlights: '',
-                synopsis:
-                  top.longDescription ||
-                  top.shortDescription ||
-                  `Popular global movie matching "${clean}".`,
-                posterUrl: top.artworkUrl100
-                  ? String(top.artworkUrl100).replace('100x100bb', '600x600bb')
-                  : undefined,
-                isPopularMovie: true,
-                detectedIntent: 'popular_movie',
-              }
-            : null,
+          recognizedMovie: {
+            canonicalTitle: clean,
+            releaseYear: '',
+            primaryGenre: fallbackGenres.primary,
+            allGenres: fallbackGenres.all,
+            directorOrStudio: '',
+            castHighlights: '',
+            synopsis: `Showing matching ${fallbackGenres.primary.toLowerCase()} titles across TK STORYWORLD.`,
+            isPopularMovie: false,
+            detectedIntent: 'genre_or_mood',
+          },
           outsideMovies: [],
-          relatedSuggestions: rows.slice(1, 7).map((r: any) => ({
-            title: r.trackName || '',
-            year: r.releaseDate ? String(r.releaseDate).slice(0, 4) : '',
-            genre: r.primaryGenreName || 'Feature Film',
-            synopsis: r.longDescription || r.shortDescription || '',
-            whySimilar: `Popular global ${
-              r.primaryGenreName || 'movie'
-            } release`,
-            youtubeQuery: `${r.trackName || ''} full movie`,
-            posterUrl: r.artworkUrl100
-              ? String(r.artworkUrl100).replace('100x100bb', '600x600bb')
-              : undefined,
-          })),
+          relatedSuggestions: [],
         });
         return;
       }
 
-      if (reqId !== activeRequestIdRef.current) return;
-      setOutsideError('Unable to reach global movie search service.');
-    } catch (err: any) {
-      if (reqId !== activeRequestIdRef.current) return;
-      setOutsideError(
-        err?.message || 'Network error while searching movies outside the app.'
-      );
-    } finally {
-      if (reqId === activeRequestIdRef.current) {
-        setIsSearchingOutside(false);
+      const cleanTitle =
+        topWiki?.title?.replace(/\s*\([^)]*film[^)]*\)/i, '').trim() ||
+        topItunes?.trackName ||
+        clean;
+      const synopsis =
+        topWiki?.extract ||
+        topItunes?.longDescription ||
+        topItunes?.shortDescription ||
+        `Popular global movie matching "${clean}".`;
+      const yearMatch = synopsis.match(/\b(19\d{2}|20[0-2]\d)\b/);
+      const releaseYear =
+        yearMatch?.[1] ||
+        (topItunes?.releaseDate ? String(topItunes.releaseDate).slice(0, 4) : '');
+      const genres = inferGenreBrowser(`${clean} ${synopsis} ${topItunes?.primaryGenreName || ''}`);
+      const posterUrl =
+        topWiki?.thumbnail?.source ||
+        (topItunes?.artworkUrl100
+          ? String(topItunes.artworkUrl100).replace('100x100bb', '600x600bb')
+          : undefined);
+
+      const relatedMap = new Map<string, SmartMovieSuggestion>();
+      for (const p of wikiPages.slice(1, 8)) {
+        const t = p.title.replace(/\s*\([^)]*film[^)]*\)/i, '').trim();
+        const k = t.toLowerCase();
+        if (!t || k === cleanTitle.toLowerCase() || relatedMap.has(k)) continue;
+        const yr = p.extract?.match(/\b(19\d{2}|20[0-2]\d)\b/)?.[1] || '';
+        const g = inferGenreBrowser(p.extract || '');
+        relatedMap.set(k, {
+          title: t,
+          year: yr,
+          genre: g.primary,
+          synopsis: (p.extract || '').slice(0, 180),
+          whySimilar: `Related ${g.primary} film matching "${clean}"`,
+          youtubeQuery: `${t} ${yr} full movie`.trim(),
+          posterUrl: p.thumbnail?.source,
+        });
       }
-    }
-  }, []);
+      for (const r of itunesRows.slice(1, 7)) {
+        const t = String(r.trackName || '').trim();
+        const k = t.toLowerCase();
+        if (!t || k === cleanTitle.toLowerCase() || relatedMap.has(k)) continue;
+        relatedMap.set(k, {
+          title: t,
+          year: r.releaseDate ? String(r.releaseDate).slice(0, 4) : '',
+          genre: r.primaryGenreName || 'Feature Film',
+          synopsis: r.longDescription || r.shortDescription || '',
+          whySimilar: `Popular global ${r.primaryGenreName || 'movie'} release`,
+          youtubeQuery: `${t} full movie`,
+          posterUrl: r.artworkUrl100
+            ? String(r.artworkUrl100).replace('100x100bb', '600x600bb')
+            : undefined,
+        });
+      }
+
+      setOutsideResult({
+        query: clean,
+        isMovieQuery: true,
+        rejectionReason: null,
+        recognizedMovie: {
+          canonicalTitle: cleanTitle,
+          releaseYear,
+          primaryGenre: genres.primary,
+          allGenres: genres.all,
+          directorOrStudio: topItunes?.artistName || '',
+          castHighlights: '',
+          synopsis,
+          posterUrl,
+          isPopularMovie: Boolean(wikiPages.length > 0 || topItunes),
+          detectedIntent: 'popular_movie',
+        },
+        outsideMovies: [],
+        relatedSuggestions: Array.from(relatedMap.values()).slice(0, 8),
+      });
+    },
+    []
+  );
+
+  const runOutsideSearch = useCallback(
+    async (searchTerm: string) => {
+      const clean = searchTerm.trim();
+      if (clean.length < 2) {
+        setOutsideResult(null);
+        setOutsideError(null);
+        setIsSearchingOutside(false);
+        return;
+      }
+
+      const reqId = ++activeRequestIdRef.current;
+      lastFetchedQueryRef.current = clean;
+      setIsSearchingOutside(true);
+      setOutsideError(null);
+
+      try {
+        let res = await fetchJsonAbortable(
+          '/api/movies/smart-search',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: clean }),
+          },
+          8500
+        ).catch(() => null);
+
+        if (reqId !== activeRequestIdRef.current) return;
+
+        // Retry with GET if edge proxy / CDN rejects POST (405)
+        if (res && res.status === 405) {
+          res = await fetchJsonAbortable(
+            `/api/movies/smart-search?q=${encodeURIComponent(clean)}`,
+            { method: 'GET' },
+            8500
+          ).catch(() => null);
+          if (reqId !== activeRequestIdRef.current) return;
+        }
+
+        const contentType = res?.headers.get('content-type') || '';
+        if (res && res.ok && contentType.includes('application/json')) {
+          const data = (await res.json()) as SmartMovieSearchResponse;
+          if (reqId !== activeRequestIdRef.current) return;
+          if (data && typeof data.isMovieQuery === 'boolean') {
+            setOutsideResult(data);
+            return;
+          }
+        }
+
+        // Seamless Cloudflare Static / Edge Fallback
+        await runBrowserCinemaFallback(clean, reqId);
+      } catch {
+        if (reqId !== activeRequestIdRef.current) return;
+        try {
+          await runBrowserCinemaFallback(clean, reqId);
+        } catch (fallbackErr: any) {
+          if (reqId !== activeRequestIdRef.current) return;
+          setOutsideError(
+            fallbackErr?.message ||
+              'Network error while searching movies. Please check your connection.'
+          );
+        }
+      } finally {
+        if (reqId === activeRequestIdRef.current) {
+          setIsSearchingOutside(false);
+        }
+      }
+    },
+    [runBrowserCinemaFallback]
+  );
 
   // Debounced outside-the-app search when user types >= 2 chars
   useEffect(() => {
@@ -252,21 +421,38 @@ export const CinemaSmartSearch: React.FC<CinemaSmartSearchProps> = ({
 
     const timer = window.setTimeout(() => {
       void runOutsideSearch(clean);
-    }, 620);
+    }, 520);
 
     return () => window.clearTimeout(timer);
   }, [query, runOutsideSearch]);
+
+  const scrollToResultsMobile = useCallback(() => {
+    window.setTimeout(() => {
+      resultsSectionRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }, 90);
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const clean = query.trim();
     if (!clean) return;
+    if (window.innerWidth < 768) {
+      localInputRef.current?.blur();
+    }
     void runOutsideSearch(clean);
+    scrollToResultsMobile();
   };
 
   const handleQuickExplore = (term: string) => {
     onQueryChange(term);
+    if (window.innerWidth < 768) {
+      localInputRef.current?.blur();
+    }
     void runOutsideSearch(term);
+    scrollToResultsMobile();
   };
 
   const hasActiveQuery = query.trim().length > 0;
@@ -281,36 +467,43 @@ export const CinemaSmartSearch: React.FC<CinemaSmartSearchProps> = ({
         <div className="flex items-center gap-3">
           <form
             onSubmit={handleSubmit}
-            className="flex-1 flex items-center gap-2 bg-[#050505] border border-white/15 focus-within:border-[#E11D48] rounded-xl px-3.5 py-1.5 transition-colors"
+            className="flex-1 flex flex-col sm:flex-row sm:items-center gap-2 bg-[#050505] border border-white/15 focus-within:border-[#E11D48] rounded-xl p-2 sm:px-3.5 sm:py-1.5 transition-colors"
           >
-            <Search className="w-4 h-4 sm:w-5 sm:h-5 text-[#F59E0B] shrink-0" />
-            <input
-              ref={inputRef}
-              type="text"
-              value={query}
-              onChange={(e) => onQueryChange(e.target.value)}
-              placeholder="Search movies on this App & Outside the App (e.g. John Wick, Anikulapo, Horror, Comedy, Anime)..."
-              aria-label="Search movies inside and outside the app"
-              className="flex-1 min-w-0 min-h-[44px] bg-transparent text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none"
-            />
-            {query && (
-              <button
-                type="button"
-                onClick={() => {
-                  onQueryChange('');
-                  setOutsideResult(null);
-                  setOutsideError(null);
-                }}
-                className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0"
-                aria-label="Clear search"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
+            <div className="flex items-center gap-2.5 flex-1 min-w-0 px-1.5 sm:px-0">
+              <Search className="w-4 h-4 sm:w-5 sm:h-5 text-[#F59E0B] shrink-0" />
+              <input
+                ref={setCombinedInputRef}
+                type="search"
+                inputMode="search"
+                enterKeyHint="search"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                value={query}
+                onChange={(e) => onQueryChange(e.target.value)}
+                placeholder="Search any movie on App or Worldwide..."
+                aria-label="Search movies inside and outside the app"
+                className="flex-1 min-w-0 min-h-[44px] bg-transparent text-base sm:text-sm text-white placeholder:text-slate-500 focus:outline-none"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onQueryChange('');
+                    setOutsideResult(null);
+                    setOutsideError(null);
+                  }}
+                  className="min-w-[38px] min-h-[38px] flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0"
+                  aria-label="Clear search"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
             <button
               type="submit"
               disabled={!query.trim() || isSearchingOutside}
-              className="min-h-[40px] px-4 py-2 rounded-lg bg-[#E11D48] hover:bg-[#BE123C] disabled:opacity-50 text-white text-xs sm:text-sm font-bold whitespace-nowrap shrink-0 cursor-pointer transition-colors inline-flex items-center gap-1.5"
+              className="w-full sm:w-auto min-h-[44px] sm:min-h-[40px] px-4 py-2 rounded-lg bg-[#E11D48] hover:bg-[#BE123C] disabled:opacity-50 text-white text-sm font-bold whitespace-nowrap shrink-0 cursor-pointer transition-colors inline-flex items-center justify-center gap-1.5"
             >
               {isSearchingOutside ? (
                 <>
@@ -352,7 +545,7 @@ export const CinemaSmartSearch: React.FC<CinemaSmartSearchProps> = ({
 
       {/* ACTIVE SEARCH RESULTS PANEL (Home In-App + Recognized Popular Movie + Outside the App Explorer) */}
       {hasActiveQuery && (
-        <div className="space-y-8">
+        <div ref={resultsSectionRef} className="space-y-8 scroll-mt-32">
           {/* STRICT MOVIE-ONLY REJECTION NOTICE */}
           {isMovieRejected && (
             <div className="rounded-2xl bg-[#12090D] border border-[#E11D48]/40 p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -549,7 +742,7 @@ export const CinemaSmartSearch: React.FC<CinemaSmartSearchProps> = ({
                       </p>
                     )}
 
-                    {outsideResult.outsideMovies[0] && (
+                    {outsideResult.outsideMovies[0] ? (
                       <div className="pt-1 flex flex-wrap items-center gap-3">
                         <button
                           type="button"
@@ -577,7 +770,26 @@ export const CinemaSmartSearch: React.FC<CinemaSmartSearchProps> = ({
                           <span>Download .MP4</span>
                         </button>
                       </div>
-                    )}
+                    ) : inAppMatches[0] ? (
+                      <div className="pt-1 flex flex-wrap items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => onPlayMovie(inAppMatches[0])}
+                          className="min-h-[44px] inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#E11D48] hover:bg-[#BE123C] text-white text-xs sm:text-sm font-bold cursor-pointer transition-colors"
+                        >
+                          <Play className="w-4 h-4 fill-current" />
+                          <span>Watch Matching Movie on App</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDownloadMovie(inAppMatches[0])}
+                          className="min-h-[44px] inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 text-xs sm:text-sm font-semibold cursor-pointer transition-colors"
+                        >
+                          <Download className="w-4 h-4" />
+                          <span>Download .MP4</span>
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               )}

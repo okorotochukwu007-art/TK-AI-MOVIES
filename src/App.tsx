@@ -1530,7 +1530,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#050505] text-[#F8FAFC] flex flex-col">
+    <div className="min-h-screen w-full max-w-full overflow-x-clip bg-[#050505] text-[#F8FAFC] flex flex-col">
       {/* CUSTOM RED LUXURY CINEMA SPLASH SCREEN */}
       {showSplashScreen && (
         <LuxurySplashScreen onFinish={() => setShowSplashScreen(false)} />
@@ -1540,7 +1540,7 @@ export default function App() {
       <OfflineIndicator isOnline={isOnline} />
 
       {/* STRICT 3-ZONE TOP BAR CONTRACT */}
-      <header className={`sticky top-0 z-40 flex items-center justify-between gap-4 sm:gap-8 px-4 sm:px-10 py-4 bg-[#050505] border-b border-white/10 ${activeModalMovie ? 'hidden' : ''}`}>
+      <header className={`sticky top-0 z-40 flex items-center justify-between gap-2 sm:gap-8 px-3 sm:px-10 py-3 sm:py-4 bg-[#050505] border-b border-white/10 ${activeModalMovie ? 'hidden' : ''}`}>
         {/* Zone 1: Single text element luxury red wordmark */}
         <a
           href="#home"
@@ -1548,7 +1548,7 @@ export default function App() {
             e.preventDefault();
             setActiveView('home');
           }}
-          className="brand-luxury-red text-xl sm:text-2xl font-black uppercase whitespace-nowrap shrink-0"
+          className="brand-luxury-red text-base sm:text-2xl font-black uppercase whitespace-nowrap truncate min-w-0"
         >
           TK STORYWORLD
         </a>
@@ -1637,12 +1637,12 @@ export default function App() {
         </nav>
 
         {/* Zone 3: Install App (PWA) + Notification Bell + Primary Account Action */}
-        <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
           {!isStandalone && (
             <button
               type="button"
               onClick={() => setShowPWAInstallModal(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#14080E] hover:bg-[#220C16] border border-[#E11D48]/50 text-xs font-semibold text-white transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 p-2 sm:px-3 sm:py-2 rounded-xl bg-[#14080E] hover:bg-[#220C16] border border-[#E11D48]/50 text-xs font-semibold text-white transition-colors cursor-pointer"
               title="Install TK STORYWORLD on Phone Home Screen"
             >
               <Download className="w-3.5 h-3.5 text-[#F59E0B]" />
@@ -1654,7 +1654,7 @@ export default function App() {
           <button
             type="button"
             onClick={focusVisibleSearchBar}
-            className="p-2.5 rounded-xl bg-[#0E1118] hover:bg-[#171C28] border border-white/15 text-slate-200 hover:text-white transition-colors cursor-pointer"
+            className="p-2 sm:p-2.5 rounded-xl bg-[#0E1118] hover:bg-[#171C28] border border-white/15 text-slate-200 hover:text-white transition-colors cursor-pointer"
             title="Search Movies on App & Outside App"
             aria-label="Search Movies"
           >
@@ -1664,7 +1664,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setShowNotifications((prev) => !prev)}
-            className="relative p-2.5 rounded-xl bg-[#0E1118] hover:bg-[#171C28] border border-white/15 text-slate-200 hover:text-white transition-colors cursor-pointer"
+            className="relative p-2 sm:p-2.5 rounded-xl bg-[#0E1118] hover:bg-[#171C28] border border-white/15 text-slate-200 hover:text-white transition-colors cursor-pointer"
             title="New Releases (Last 48h) & Coming Soon"
             aria-label="New Releases and Coming Soon Notifications"
           >
@@ -1681,7 +1681,7 @@ export default function App() {
               setPendingMovieAfterAuth(null);
               setShowSearchAndAccountModal(true);
             }}
-            className="px-3 sm:px-4 py-2 text-xs font-semibold text-white bg-[#E11D48] hover:bg-[#BE123C] rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            className="px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs font-semibold text-white bg-[#E11D48] hover:bg-[#BE123C] rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             {isUserSignedIn ? 'Account' : 'Login'}
           </button>
@@ -1689,14 +1689,14 @@ export default function App() {
       </header>
 
       {/* Sticky Mobile Secondary Navigation Strip (Android & iPhone) */}
-      <div className={`sticky top-[65px] z-30 flex md:hidden items-center justify-around px-2 py-2 bg-[#0A0C12]/95 backdrop-blur-md border-b border-white/10 text-xs font-medium text-slate-300 overflow-x-auto no-scrollbar ${activeModalMovie ? 'hidden' : ''}`}>
+      <div className={`sticky top-[57px] sm:top-[65px] z-30 flex md:hidden items-center justify-between sm:justify-around gap-1 px-2 py-2 bg-[#0A0C12]/95 backdrop-blur-md border-b border-white/10 text-[11px] sm:text-xs font-medium text-slate-300 overflow-x-auto no-scrollbar ${activeModalMovie ? 'hidden' : ''}`}>
         {[
           { id: 'home', label: 'Home' },
           {
             id: 'saved',
             label:
               deviceDownloads.length > 0
-                ? `Saved Movies (${deviceDownloads.length})`
+                ? `Saved (${deviceDownloads.length})`
                 : 'Saved Movies',
           },
           { id: 'categories', label: 'Categories' },
@@ -1706,7 +1706,7 @@ export default function App() {
           <button
             key={item.id}
             onClick={() => setActiveView(item.id as NavView)}
-            className={`px-3 py-1.5 rounded-md whitespace-nowrap shrink-0 cursor-pointer ${
+            className={`px-2 py-1.5 rounded-md whitespace-nowrap shrink-0 cursor-pointer ${
               activeView === item.id
                 ? item.id === 'saved'
                   ? 'text-emerald-400 font-bold bg-emerald-500/15 border border-emerald-500/30'
@@ -2259,7 +2259,7 @@ export default function App() {
                       value={savedSearchQuery}
                       onChange={(e) => setSavedSearchQuery(e.target.value)}
                       placeholder="Search your saved movies..."
-                      className="w-full pl-9 pr-8 py-2 rounded-xl bg-black/60 border border-white/15 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-400"
+                      className="w-full pl-9 pr-8 py-2 rounded-xl bg-black/60 border border-white/15 text-base sm:text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-400"
                     />
                     {savedSearchQuery && (
                       <button
@@ -2933,7 +2933,7 @@ export default function App() {
           /* HOME VIEW: NETFLIX-STYLE STREAMING INTERFACE ARRANGED BY GENRE */
           <div className="space-y-10 pb-16">
             {/* VISIBLE SMART MOVIE SEARCH BAR (IN-APP + OUTSIDE-THE-APP EXPLORER) ON HOME PAGE */}
-            <section className="max-w-[1400px] mx-auto px-5 sm:px-10 pt-5 scroll-mt-32">
+            <section className="max-w-[1400px] mx-auto px-4 sm:px-10 pt-4 sm:pt-5 scroll-mt-32">
               <CinemaSmartSearch
                 query={searchQuery}
                 onQueryChange={setSearchQuery}
@@ -2951,7 +2951,7 @@ export default function App() {
 
             {/* 1. CINEMATIC RECENT 2026 MOVIE HERO BANNER */}
             {featuredMovie && (
-              <section className="relative w-full min-h-[560px] lg:min-h-[650px] flex items-end overflow-hidden border-b border-white/10 bg-[#050505]">
+              <section className="relative w-full min-h-[460px] sm:min-h-[560px] lg:min-h-[650px] flex items-end overflow-hidden border-b border-white/10 bg-[#050505]">
                 <div className="absolute inset-0">
                   <CinemaPosterImage
                     src={featuredMovie.backdropUrl || featuredMovie.thumbnailUrl}
@@ -2965,7 +2965,7 @@ export default function App() {
                   <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/30 to-transparent" />
                 </div>
 
-                <div className="relative z-10 max-w-[1400px] w-full mx-auto px-5 sm:px-10 py-10 sm:py-14 space-y-8">
+                <div className="relative z-10 max-w-[1400px] w-full mx-auto px-4 sm:px-10 py-8 sm:py-14 space-y-6 sm:space-y-8">
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-end">
                     <div className="lg:col-span-7 xl:col-span-8 space-y-4">
                       {/* Luxury Red Brand Marquee + Star Hook Badge */}
@@ -3006,8 +3006,8 @@ export default function App() {
                       </div>
 
                       <h1
-                        className="font-display font-extrabold text-white tracking-tight leading-[1.06] drop-shadow-lg"
-                        style={{ fontSize: 'clamp(2rem, 3.8vw, 3.5rem)' }}
+                        className="font-display font-extrabold text-white tracking-tight leading-[1.08] drop-shadow-lg break-words"
+                        style={{ fontSize: 'clamp(1.65rem, 5vw, 3.5rem)' }}
                       >
                         {featuredMovie.title}
                       </h1>
@@ -3016,10 +3016,10 @@ export default function App() {
                         {featuredMovie.synopsis}
                       </p>
 
-                      <div className="pt-2 flex flex-wrap items-center gap-3">
+                      <div className="pt-2 flex flex-wrap items-center gap-2.5 sm:gap-3">
                         <button
                           onClick={() => openMovieModal(featuredMovie, true)}
-                          className="inline-flex items-center gap-2.5 px-6 py-3.5 rounded-xl bg-[#E11D48] hover:bg-[#BE123C] text-white text-sm font-bold shadow-lg transition-transform hover:scale-105 whitespace-nowrap shrink-0 cursor-pointer"
+                          className="inline-flex items-center gap-2 px-5 sm:px-6 py-3 sm:py-3.5 rounded-xl bg-[#E11D48] hover:bg-[#BE123C] text-white text-sm font-bold shadow-lg transition-transform hover:scale-105 whitespace-nowrap shrink-0 cursor-pointer"
                         >
                           <Play className="w-4 h-4 fill-current" />
                           <span>Watch Full Movie Now</span>
@@ -3152,7 +3152,7 @@ export default function App() {
               </section>
             )}
 
-            <div className="max-w-[1400px] mx-auto px-5 sm:px-10 space-y-12">
+            <div className="max-w-[1400px] mx-auto px-4 sm:px-10 space-y-10 sm:space-y-12">
               {/* QUICK 12-GENRE BAR WITH STORY COUNTS */}
               <section className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -3362,7 +3362,7 @@ export default function App() {
                     </button>
                   </div>
 
-                  <div className="flex items-stretch gap-4 overflow-x-auto no-scrollbar snap-x snap-mandatory pb-2 -mx-5 px-5 sm:mx-0 sm:px-0">
+                  <div className="flex items-stretch gap-4 overflow-x-auto no-scrollbar snap-x snap-mandatory pb-2 -mx-4 px-4 sm:mx-0 sm:px-0">
                     {newMovies2026.slice(0, 10).map((m, idx) => (
                       <div
                         key={`top10-${m.id}`}
@@ -3476,7 +3476,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
                   {viralAndAddictiveMovies
                     .slice(0, 8)
                     .map((m) => renderMovieCard(m, true))}
@@ -3580,7 +3580,7 @@ export default function App() {
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
                     {newMovies2026
                       .slice(0, 16)
                       .map((m) => renderMovieCard(m, true))}
@@ -3615,7 +3615,7 @@ export default function App() {
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
                     {nigerianAndAfricanMovies
                       .slice(0, 8)
                       .map((m) => renderMovieCard(m, true))}
@@ -3649,7 +3649,7 @@ export default function App() {
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
                     {actionMovies
                       .slice(0, 8)
                       .map((m) => renderMovieCard(m, true))}
@@ -3683,7 +3683,7 @@ export default function App() {
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
                     {contractMarriageMovies
                       .slice(0, 8)
                       .map((m) => renderMovieCard(m, true))}
@@ -3717,7 +3717,7 @@ export default function App() {
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
                     {secretMarriageMovies
                       .slice(0, 8)
                       .map((m) => renderMovieCard(m, true))}
@@ -3751,7 +3751,7 @@ export default function App() {
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
                     {ceoAndBillionaireMovies
                       .slice(0, 8)
                       .map((m) => renderMovieCard(m, true))}
@@ -3785,7 +3785,7 @@ export default function App() {
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
                     {revengeRomanceMovies
                       .slice(0, 8)
                       .map((m) => renderMovieCard(m, true))}
@@ -3819,7 +3819,7 @@ export default function App() {
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
                     {emotionalLoveMovies
                       .slice(0, 8)
                       .map((m) => renderMovieCard(m, true))}
@@ -3853,7 +3853,7 @@ export default function App() {
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
                     {werewolfRomanceMovies
                       .slice(0, 8)
                       .map((m) => renderMovieCard(m, true))}
@@ -3887,7 +3887,7 @@ export default function App() {
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
                     {fantasyAndAnimatedMovies
                       .slice(0, 8)
                       .map((m) => renderMovieCard(m, true))}
@@ -3924,7 +3924,7 @@ export default function App() {
                     <ChevronRight className="w-3.5 h-3.5" />
                   </button>
                 </div>
-                <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
                   {mostLovedMovies
                     .slice(0, 8)
                     .map((m) => renderMovieCard(m, true))}
@@ -3954,7 +3954,7 @@ export default function App() {
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-5 px-5 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
+                  <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-4 pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-5">
                     {newlyReleasedEpisodes
                       .slice(0, 4)
                       .map((m) => renderMovieCard(m, true))}
@@ -3967,7 +3967,7 @@ export default function App() {
       </main>
 
       {/* CLEAN EDITORIAL FOOTER */}
-      <footer className={`border-t border-white/10 bg-[#050505] py-8 pb-24 md:pb-8 px-5 sm:px-10 ${activeModalMovie ? 'hidden' : ''}`}>
+      <footer className={`border-t border-white/10 bg-[#050505] py-8 pb-24 md:pb-8 px-4 sm:px-10 ${activeModalMovie ? 'hidden' : ''}`}>
         <div className="max-w-[1400px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
           <div>
             <span className="brand-luxury-red text-sm font-black uppercase">

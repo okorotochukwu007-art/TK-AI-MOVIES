@@ -12,6 +12,8 @@
   html {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
+    max-width: 100%;
+    overflow-x: clip;
     overscroll-behavior-x: none;
   }
 
@@ -19,10 +21,18 @@
     font-family: var(--font-sans);
     background-color: #050505;
     color: #F8FAFC;
-    overflow-x: hidden;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: clip;
     overscroll-behavior-x: none;
     -webkit-tap-highlight-color: transparent;
     padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  #root {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: clip;
   }
 
   button, a, [role="button"] {
@@ -50,7 +60,13 @@
     font-family: var(--font-luxury);
     color: #FF1E4D;
     text-shadow: 0 0 18px rgba(225, 29, 72, 0.55), 0 2px 4px rgba(0, 0, 0, 0.9);
-    letter-spacing: 0.14em;
+    letter-spacing: 0.06em;
+  }
+
+  @media (min-width: 640px) {
+    .brand-luxury-red {
+      letter-spacing: 0.14em;
+    }
   }
 
   .font-mono, .tabular-nums {

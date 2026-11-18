@@ -2,18 +2,25 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Bookmark,
   Check,
+  ChevronLeft,
   Copy,
   Download,
   FastForward,
+  Film,
+  Gauge,
   Heart,
+  Lock,
   Maximize2,
   MessageCircle,
   Minimize2,
   Pause,
   Play,
   RotateCcw,
+  RotateCw,
   Share2,
   SlidersHorizontal,
+  Sun,
+  Unlock,
   Volume2,
   VolumeX,
   WifiOff,
@@ -143,6 +150,19 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
     if (sameCat.length > 0) return sameCat[0];
     const anyOther = allMovies.filter((m) => m.id !== movie.id);
     return anyOther[0] || null;
+  }, [allMovies, movie.id, movie.primaryCategory, seriesEpisodes]);
+
+  const upNextShelfMovies = React.useMemo(() => {
+    if (seriesEpisodes.length > 1) {
+      return seriesEpisodes;
+    }
+    const sameCat = allMovies.filter(
+      (m) => m.id !== movie.id && m.primaryCategory === movie.primaryCategory
+    );
+    const others = allMovies.filter(
+      (m) => m.id !== movie.id && m.primaryCategory !== movie.primaryCategory
+    );
+    return [...sameCat, ...others].slice(0, 10);
   }, [allMovies, movie.id, movie.primaryCategory, seriesEpisodes]);
 
   const [bingeCountdown, setBingeCountdown] = useState<number | null>(null);
@@ -382,6 +402,9 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
           ) {
             setCurrentTimestamp(payload.info.currentTime);
             latestTimestampRef.current = payload.info.currentTime;
+            if (payload.info.currentTime > 0.4) {
+              setHasConfirmedPlay(true);
+            }
           }
           if (
             typeof payload.info.duration === 'number' &&
@@ -394,6 +417,7 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
             if (payload.info.playerState === 1) {
               setPlayerPlaying(true);
               setUserExplicitlyPaused(false);
+              setHasConfirmedPlay(true);
             } else if (payload.info.playerState === 2) {
               setPlayerPlaying(false);
             } else if (payload.info.playerState === 0 && nextBingeMovie) {
@@ -416,6 +440,9 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
   useEffect(() => {
     setPlayerPlaying(true);
     setUserExplicitlyPaused(false);
+    setHasConfirmedPlay(false);
+    setShowUpNextDrawer(false);
+    setIsScreenLocked(false);
     setCurrentTimestamp(resumeSeconds);
     latestTimestampRef.current = resumeSeconds;
     setStartOffsetSec(resumeSeconds > 15 ? Math.floor(resumeSeconds) : 0);
@@ -461,6 +488,45 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
   const hudTimerRef = useRef<number | null>(null);
   const [screenFitMode, setScreenFitMode] = useState<'fit' | 'fill' | 'zoom'>('fit');
 
+  // Netflix-style interactive cinema states
+  const [hasConfirmedPlay, setHasConfirmedPlay] = useState(false);
+  const [isScreenLocked, setIsScreenLocked] = useState(false);
+  const [showUnlockPrompt, setShowUnlockPrompt] = useState(false);
+  const unlockPromptTimerRef = useRef<number | null>(null);
+  const [cinemaBrightness, setCinemaBrightness] = useState(1);
+  const [showBrightnessHud, setShowBrightnessHud] = useState(false);
+  const brightnessHudTimerRef = useRef<number | null>(null);
+  const [playbackSpeed, setPlaybackSpeed] = useState<0.75 | 1 | 1.25 | 1.5>(1);
+  const [showUpNextDrawer, setShowUpNextDrawer] = useState(false);
+  const [pinchFeedbackPill, setPinchFeedbackPill] = useState<string | null>(null);
+  const pinchFeedbackTimerRef = useRef<number | null>(null);
+  const [seekRipple, setSeekRipple] = useState<{
+    side: 'left' | 'right';
+    seconds: number;
+    key: number;
+  } | null>(null);
+  const seekRippleTimerRef = useRef<number | null>(null);
+
+  // Touch gesture tracking refs
+  const singleTapTimerRef = useRef<number | null>(null);
+  const lastTapInfoRef = useRef<{ time: number; side: 'left' | 'center' | 'right' }>({
+    time: 0,
+    side: 'center',
+  });
+  const gestureTouchRef = useRef<{
+    startX: number;
+    startY: number;
+    startBrightness: number;
+    mode: 'none' | 'brightness' | 'pinch';
+    pinchStartDist: number;
+  }>({
+    startX: 0,
+    startY: 0,
+    startBrightness: 1,
+    mode: 'none',
+    pinchStartDist: 0,
+  });
+
   const isImmersiveCinema =
     isNativeFullscreen || isMobileTheatreExpanded || isLandscapeViewport;
 
@@ -472,6 +538,43 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
     }
   }, []);
 
+  const flashPinchPill = React.useCallback((label: string) => {
+    setPinchFeedbackPill(label);
+    if (pinchFeedbackTimerRef.current) {
+      window.clearTimeout(pinchFeedbackTimerRef.current);
+    }
+    pinchFeedbackTimerRef.current = window.setTimeout(() => {
+      setPinchFeedbackPill(null);
+    }, 1400);
+  }, []);
+
+  const triggerSeekWithRipple = React.useCallback(
+    (deltaSec: number, side: 'left' | 'right') => {
+      seekRelativeSeconds(deltaSec);
+      setSeekRipple((prev) => {
+        const accumulated =
+          prev && prev.side === side ? prev.seconds + Math.abs(deltaSec) : Math.abs(deltaSec);
+        return { side, seconds: accumulated, key: Date.now() };
+      });
+      if (seekRippleTimerRef.current) {
+        window.clearTimeout(seekRippleTimerRef.current);
+      }
+      seekRippleTimerRef.current = window.setTimeout(() => {
+        setSeekRipple(null);
+      }, 700);
+    },
+    [seekRelativeSeconds]
+  );
+
+  const cyclePlaybackSpeed = () => {
+    revealHudTemporarily();
+    const speeds: Array<0.75 | 1 | 1.25 | 1.5> = [1, 1.25, 1.5, 0.75];
+    const nextSpeed = speeds[(speeds.indexOf(playbackSpeed) + 1) % speeds.length];
+    setPlaybackSpeed(nextSpeed);
+    sendPlayerCommand('setPlaybackRate', [nextSpeed]);
+    flashPinchPill(`Speed ${nextSpeed}x`);
+  };
+
   // Track device rotation / landscape slide & native fullscreen state
   useEffect(() => {
     const checkOrientation = () => {
@@ -479,6 +582,10 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
         window.innerWidth > window.innerHeight && window.innerHeight <= 560;
       setIsLandscapeViewport(landscape);
       setHudVisible(true);
+      if (!landscape) {
+        setIsScreenLocked(false);
+        setShowUpNextDrawer(false);
+      }
     };
 
     const handleFullscreenChange = () => {
@@ -516,13 +623,14 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
       playerPlaying &&
       !isScrubbing &&
       !showShareCard &&
+      !showUpNextDrawer &&
       bingeCountdown === null &&
       !userExplicitlyPaused
     ) {
       hudTimerRef.current = window.setTimeout(() => {
         setHudVisible(false);
-      }, 3200);
-    } else {
+      }, 3400);
+    } else if (!isScreenLocked) {
       setHudVisible(true);
     }
     return () => {
@@ -536,16 +644,26 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
     playerPlaying,
     isScrubbing,
     showShareCard,
+    showUpNextDrawer,
     bingeCountdown,
     userExplicitlyPaused,
+    isScreenLocked,
     hudVisible,
   ]);
 
   const cycleScreenFitMode = () => {
     revealHudTemporarily();
-    setScreenFitMode((prev) =>
-      prev === 'fit' ? 'fill' : prev === 'fill' ? 'zoom' : 'fit'
-    );
+    setScreenFitMode((prev) => {
+      const next = prev === 'fit' ? 'fill' : prev === 'fill' ? 'zoom' : 'fit';
+      flashPinchPill(
+        next === 'zoom'
+          ? 'Cinema Zoom'
+          : next === 'fill'
+          ? 'Zoomed to Fill'
+          : 'Original 16:9'
+      );
+      return next;
+    });
   };
 
   // Cinema zoom/fill options so portrait & 20:9 landscape viewers can fill the entire screen cleanly
@@ -561,7 +679,128 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
       ? 'Max Zoom'
       : screenFitMode === 'fill'
       ? 'Screen Fill'
-      : '16:9 Fit';
+      : 'Original';
+
+  // Touch & click handlers on the Netflix Gesture Layer
+  const handleGestureTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (isScreenLocked) return;
+    if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      gestureTouchRef.current = {
+        startX: 0,
+        startY: 0,
+        startBrightness: cinemaBrightness,
+        mode: 'pinch',
+        pinchStartDist: Math.hypot(dx, dy),
+      };
+      return;
+    }
+    if (e.touches.length === 1) {
+      gestureTouchRef.current = {
+        startX: e.touches[0].clientX,
+        startY: e.touches[0].clientY,
+        startBrightness: cinemaBrightness,
+        mode: 'none',
+        pinchStartDist: 0,
+      };
+    }
+  };
+
+  const handleGestureTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (isScreenLocked) return;
+    if (e.touches.length === 2 && gestureTouchRef.current.mode === 'pinch') {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+      const delta = dist - gestureTouchRef.current.pinchStartDist;
+      if (delta > 32 && screenFitMode !== 'fill') {
+        setScreenFitMode('fill');
+        flashPinchPill('Zoomed to Fill');
+      } else if (delta < -32 && screenFitMode !== 'fit') {
+        setScreenFitMode('fit');
+        flashPinchPill('Original 16:9');
+      }
+      return;
+    }
+    if (e.touches.length === 1) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const relX = (gestureTouchRef.current.startX - rect.left) / Math.max(1, rect.width);
+      const dy = gestureTouchRef.current.startY - e.touches[0].clientY;
+      // Left-third vertical swipe adjusts Netflix-style Cinema Brightness
+      if (relX < 0.32 && Math.abs(dy) > 16) {
+        gestureTouchRef.current.mode = 'brightness';
+        const nextB = Math.min(
+          1,
+          Math.max(0.4, gestureTouchRef.current.startBrightness + dy / 220)
+        );
+        setCinemaBrightness(nextB);
+        setShowBrightnessHud(true);
+        if (brightnessHudTimerRef.current) {
+          window.clearTimeout(brightnessHudTimerRef.current);
+        }
+        brightnessHudTimerRef.current = window.setTimeout(() => {
+          setShowBrightnessHud(false);
+        }, 1200);
+      }
+    }
+  };
+
+  const handleGestureClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (gestureTouchRef.current.mode === 'brightness' || gestureTouchRef.current.mode === 'pinch') {
+      gestureTouchRef.current.mode = 'none';
+      return;
+    }
+
+    if (isScreenLocked) {
+      setShowUnlockPrompt(true);
+      if (unlockPromptTimerRef.current) {
+        window.clearTimeout(unlockPromptTimerRef.current);
+      }
+      unlockPromptTimerRef.current = window.setTimeout(() => {
+        setShowUnlockPrompt(false);
+      }, 2500);
+      return;
+    }
+
+    if (showUpNextDrawer) {
+      setShowUpNextDrawer(false);
+      return;
+    }
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relX = (e.clientX - rect.left) / Math.max(1, rect.width);
+    const side: 'left' | 'center' | 'right' =
+      relX < 0.36 ? 'left' : relX > 0.64 ? 'right' : 'center';
+    const now = Date.now();
+    const isDoubleTap =
+      now - lastTapInfoRef.current.time < 280 &&
+      lastTapInfoRef.current.side === side &&
+      side !== 'center';
+
+    if (isDoubleTap) {
+      if (singleTapTimerRef.current) {
+        window.clearTimeout(singleTapTimerRef.current);
+        singleTapTimerRef.current = null;
+      }
+      lastTapInfoRef.current = { time: now, side };
+      if (side === 'left') {
+        triggerSeekWithRipple(-10, 'left');
+      } else if (side === 'right') {
+        triggerSeekWithRipple(10, 'right');
+      }
+      return;
+    }
+
+    lastTapInfoRef.current = { time: now, side };
+    if (singleTapTimerRef.current) {
+      window.clearTimeout(singleTapTimerRef.current);
+    }
+    singleTapTimerRef.current = window.setTimeout(() => {
+      setHudVisible((prev) => !prev);
+      singleTapTimerRef.current = null;
+    }, 240);
+  };
 
   const embedSrcUrl = React.useMemo(() => {
     const host =
@@ -714,7 +953,7 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
       aria-modal="true"
       aria-label={movie.title}
     >
-      {/* TOP CINEMA EDGE BAR — Docked in portrait, floating auto-hide overlay in landscape/fullscreen */}
+      {/* TOP CINEMA EDGE BAR — Docked in portrait, Netflix floating auto-hide overlay in landscape/fullscreen */}
       <header
         onClick={(e) => {
           e.stopPropagation();
@@ -727,8 +966,8 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
         }}
         className={`${
           isImmersiveCinema
-            ? `absolute top-0 inset-x-0 z-30 bg-gradient-to-b from-black/90 via-black/65 to-transparent border-b-0 transition-opacity duration-300 ${
-                hudVisible
+            ? `absolute top-0 inset-x-0 z-30 bg-gradient-to-b from-black/90 via-black/55 to-transparent border-b-0 transition-opacity duration-300 ${
+                hudVisible && !isScreenLocked
                   ? 'opacity-100 pointer-events-auto'
                   : 'opacity-0 pointer-events-none'
               }`
@@ -736,6 +975,17 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
         } h-12 sm:h-14 flex items-center justify-between pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] sm:px-6`}
       >
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          {isImmersiveCinema && (
+            <button
+              type="button"
+              onClick={() => void toggleFullscreen()}
+              className="p-1.5 -ml-1 rounded-full text-white hover:bg-white/15 transition-colors cursor-pointer shrink-0"
+              title="Back"
+              aria-label="Exit Landscape Cinema"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+          )}
           <span className="font-luxury text-[#FF1E4D] tracking-[0.12em] text-[10px] sm:text-xs font-black uppercase whitespace-nowrap shrink-0">
             TK STORYWORLD
           </span>
@@ -869,15 +1119,235 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
           />
         </div>
 
-        {/* Subtle edge tap-to-reveal HUD hotspot & corner controls pill when HUD auto-hides in landscape/fullscreen */}
-        {isImmersiveCinema && !hudVisible && !userExplicitlyPaused && !showShareCard && bingeCountdown === null && (
-          <>
+        {/* Cinema Brightness Dimming Scrim (controlled by Netflix-style left-edge vertical swipe) */}
+        {cinemaBrightness < 0.99 && (
+          <div
+            className="pointer-events-none absolute inset-0 z-[11] bg-black transition-opacity duration-75"
+            style={{ opacity: Math.max(0, Math.min(0.65, 1 - cinemaBrightness)) }}
+          />
+        )}
+
+        {/* NETFLIX-STYLE TOUCH GESTURE LAYER (Single Tap HUD, Double Tap -10s/+10s, Pinch-to-Fill, Brightness Swipe, Screen Lock) */}
+        {isImmersiveCinema &&
+          hasConfirmedPlay &&
+          !userExplicitlyPaused &&
+          !showShareCard &&
+          bingeCountdown === null && (
+            <div
+              onTouchStart={handleGestureTouchStart}
+              onTouchMove={handleGestureTouchMove}
+              onClick={handleGestureClick}
+              className="absolute inset-0 z-[14] bg-transparent cursor-pointer"
+            />
+          )}
+
+        {/* Netflix Double-Tap Seek Ripple (-10s Left / +10s Right) */}
+        {seekRipple && (
+          <div
+            key={seekRipple.key}
+            className={`pointer-events-none absolute inset-y-0 z-[22] w-[42%] flex items-center justify-center bg-white/10 backdrop-blur-[2px] animate-pulse ${
+              seekRipple.side === 'left'
+                ? 'left-0 rounded-r-full'
+                : 'right-0 rounded-l-full'
+            }`}
+          >
+            <div className="flex flex-col items-center gap-1 text-white drop-shadow-lg">
+              {seekRipple.side === 'left' ? (
+                <RotateCcw className="w-9 h-9" />
+              ) : (
+                <RotateCw className="w-9 h-9" />
+              )}
+              <span className="font-mono text-xs font-extrabold tracking-wider">
+                {seekRipple.side === 'left' ? `-${seekRipple.seconds}s` : `+${seekRipple.seconds}s`}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Netflix Left-Edge Vertical Brightness Indicator */}
+        {showBrightnessHud && (
+          <div className="pointer-events-none absolute left-[max(1.25rem,env(safe-area-inset-left))] top-1/2 -translate-y-1/2 z-[25] flex flex-col items-center gap-2 px-2.5 py-3 rounded-2xl bg-black/75 border border-white/15 backdrop-blur-md">
+            <Sun className="w-4 h-4 text-[#F59E0B]" />
+            <div className="w-1.5 h-24 rounded-full bg-white/20 overflow-hidden flex flex-col justify-end">
+              <div
+                className="w-full rounded-full bg-gradient-to-t from-[#E11D48] to-[#F59E0B]"
+                style={{ height: `${Math.round(((cinemaBrightness - 0.4) / 0.6) * 100)}%` }}
+              />
+            </div>
+            <span className="font-mono text-[10px] font-bold text-white">
+              {Math.round(cinemaBrightness * 100)}%
+            </span>
+          </div>
+        )}
+
+        {/* Pinch-to-Fill / Speed Pill Feedback Toast */}
+        {pinchFeedbackPill && (
+          <div className="pointer-events-none absolute top-16 left-1/2 -translate-x-1/2 z-[26] px-4 py-1.5 rounded-full bg-black/80 border border-white/20 text-white text-xs font-bold tracking-wide backdrop-blur-md shadow-xl">
+            {pinchFeedbackPill}
+          </div>
+        )}
+
+        {/* Netflix Screen Lock Unlock Pill */}
+        {isScreenLocked && showUnlockPrompt && (
+          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-[32]">
             <button
               type="button"
-              onClick={revealHudTemporarily}
-              aria-label="Show player controls"
-              className="absolute top-0 inset-x-0 h-8 z-20 bg-transparent cursor-pointer"
-            />
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsScreenLocked(false);
+                setShowUnlockPrompt(false);
+                revealHudTemporarily();
+              }}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-white text-black font-display text-xs font-extrabold shadow-2xl hover:bg-slate-100 transition-transform active:scale-95 cursor-pointer"
+            >
+              <Unlock className="w-4 h-4 text-[#E11D48]" />
+              <span>Screen Locked · Tap to Unlock</span>
+            </button>
+          </div>
+        )}
+
+        {/* NETFLIX SIGNATURE CENTER ACTION TRINITY (-10s | Play/Pause | +10s) in Landscape & Fullscreen */}
+        {isImmersiveCinema &&
+          hudVisible &&
+          !isScreenLocked &&
+          !userExplicitlyPaused &&
+          !showShareCard &&
+          !showUpNextDrawer &&
+          bingeCountdown === null && (
+            <div className="pointer-events-none absolute inset-0 z-[20] flex items-center justify-center gap-10 sm:gap-16 bg-black/25 transition-opacity duration-200">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  revealHudTemporarily();
+                  triggerSeekWithRipple(-10, 'left');
+                }}
+                className="pointer-events-auto relative w-14 h-14 rounded-full bg-black/45 hover:bg-black/75 border border-white/15 text-white flex flex-col items-center justify-center backdrop-blur-sm transition-transform active:scale-90 cursor-pointer"
+                title="Rewind 10 Seconds"
+              >
+                <RotateCcw className="w-6 h-6" />
+                <span className="font-mono text-[9px] font-bold -mt-0.5">10</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  revealHudTemporarily();
+                  toggleNativePlayPause();
+                }}
+                className="pointer-events-auto w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-black/55 hover:bg-[#E11D48] border border-white/25 text-white flex items-center justify-center backdrop-blur-sm shadow-2xl transition-all active:scale-90 cursor-pointer"
+                title={playerPlaying ? 'Pause Movie' : 'Play Movie'}
+              >
+                {playerPlaying ? (
+                  <Pause className="w-8 h-8 fill-current" />
+                ) : (
+                  <Play className="w-8 h-8 fill-current ml-0.5" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  revealHudTemporarily();
+                  triggerSeekWithRipple(10, 'right');
+                }}
+                className="pointer-events-auto relative w-14 h-14 rounded-full bg-black/45 hover:bg-black/75 border border-white/15 text-white flex flex-col items-center justify-center backdrop-blur-sm transition-transform active:scale-90 cursor-pointer"
+                title="Forward 10 Seconds"
+              >
+                <RotateCw className="w-6 h-6" />
+                <span className="font-mono text-[9px] font-bold -mt-0.5">10</span>
+              </button>
+            </div>
+          )}
+
+        {/* NETFLIX-STYLE SLIDE-UP EPISODES / UP NEXT DRAWER INSIDE LANDSCAPE PLAYER */}
+        {showUpNextDrawer && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="absolute inset-x-0 bottom-0 z-[34] bg-gradient-to-t from-black via-[#090B10]/98 to-black/90 border-t border-white/15 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 space-y-3 shadow-2xl"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Film className="w-4 h-4 text-[#E11D48]" />
+                <h3 className="font-display text-xs sm:text-sm font-bold text-white uppercase tracking-wider">
+                  {seriesEpisodes.length > 1
+                    ? 'All Episodes in This Series'
+                    : 'More 2026 Movies Like This'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowUpNextDrawer(false)}
+                className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-xs font-semibold text-white cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Close</span>
+              </button>
+            </div>
+
+            <div className="flex items-stretch gap-3 overflow-x-auto no-scrollbar pb-1">
+              {upNextShelfMovies.map((item) => {
+                const isCurrent = item.id === movie.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setShowUpNextDrawer(false);
+                      if (!isCurrent) onSelectMovie(item, true);
+                    }}
+                    className={`group w-[170px] sm:w-[205px] shrink-0 rounded-xl overflow-hidden border text-left transition-all cursor-pointer bg-[#10131C] ${
+                      isCurrent
+                        ? 'border-[#E11D48] ring-1 ring-[#E11D48]'
+                        : 'border-white/15 hover:border-white/40'
+                    }`}
+                  >
+                    <div className="relative aspect-video w-full bg-black overflow-hidden">
+                      <img
+                        src={item.thumbnailUrl}
+                        alt={item.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                        loading="lazy"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-center justify-center">
+                        <div className="w-8 h-8 rounded-full bg-[#E11D48]/90 text-white flex items-center justify-center shadow">
+                          <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                        </div>
+                      </div>
+                      <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/80 text-[10px] font-mono text-white">
+                        {item.durationFormatted}
+                      </span>
+                      {isCurrent && (
+                        <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-[#E11D48] text-[9px] font-bold text-white uppercase">
+                          Playing
+                        </span>
+                      )}
+                    </div>
+                    <div className="p-2">
+                      <div className="font-display text-[11px] font-bold text-white line-clamp-1">
+                        {item.title}
+                      </div>
+                      <div className="text-[10px] text-slate-400 truncate">
+                        {item.hookTag || item.primaryCategory}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Fallback corner Controls pill only if playback hasn't confirmed yet & HUD is hidden */}
+        {isImmersiveCinema &&
+          !hasConfirmedPlay &&
+          !hudVisible &&
+          !isScreenLocked &&
+          !userExplicitlyPaused &&
+          !showShareCard &&
+          bingeCountdown === null && (
             <button
               type="button"
               onClick={revealHudTemporarily}
@@ -886,8 +1356,7 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
               <SlidersHorizontal className="w-3 h-3 text-[#F59E0B]" />
               <span>Controls</span>
             </button>
-          </>
-        )}
+          )}
 
         {/* Native TK STORYWORLD Paused Cinema Shield — Hides YouTube's pause-screen banners when paused */}
         {userExplicitlyPaused && bingeCountdown === null && !showShareCard && (
@@ -1021,7 +1490,7 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
         )}
       </main>
 
-      {/* BOTTOM CINEMA CONTROL BAR + INTERACTIVE VIDEO PROGRESS BAR */}
+      {/* BOTTOM CINEMA CONTROL BAR + INTERACTIVE NETFLIX SCRUBBER */}
       <footer
         onClick={(e) => {
           e.stopPropagation();
@@ -1035,7 +1504,7 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
         className={`${
           isImmersiveCinema
             ? `absolute bottom-0 inset-x-0 z-30 bg-gradient-to-t from-black/95 via-black/75 to-transparent border-t-0 transition-opacity duration-300 ${
-                hudVisible
+                hudVisible && !isScreenLocked && !showUpNextDrawer
                   ? 'opacity-100 pointer-events-auto'
                   : 'opacity-0 pointer-events-none'
               }`
@@ -1049,19 +1518,19 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
           </span>
 
           <div className="relative flex-1 h-5 flex items-center group cursor-pointer">
-            <div className="w-full h-1.5 sm:h-2 rounded-full bg-white/20 overflow-hidden relative">
+            <div className="w-full h-1.5 sm:h-2 rounded-full bg-white/25 overflow-hidden relative">
               <div
-                className="absolute inset-y-0 left-0 bg-white/25 transition-all duration-300"
+                className="absolute inset-y-0 left-0 bg-white/30 transition-all duration-300"
                 style={{ width: `${bufferedPct}%` }}
               />
               <div
-                className="absolute inset-y-0 left-0 bg-gradient-to-r from-[#E11D48] via-[#FF1E4D] to-[#F59E0B]"
+                className="absolute inset-y-0 left-0 bg-[#E50914]"
                 style={{ width: `${progressPct}%` }}
               />
             </div>
 
             <div
-              className="pointer-events-none absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-white border-2 border-[#E11D48] shadow-lg transition-transform group-hover:scale-125"
+              className="pointer-events-none absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-[#E50914] border-2 border-white shadow-lg transition-transform group-hover:scale-125"
               style={{ left: `${progressPct}%` }}
             />
 
@@ -1101,18 +1570,20 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
             />
           </div>
 
-          <span className="font-mono text-[11px] sm:text-xs text-slate-300 tabular-nums shrink-0 min-w-[44px] sm:min-w-[52px] text-right">
-            {formatSec(totalDuration)}
+          <span className="font-mono text-[11px] sm:text-xs text-slate-300 tabular-nums shrink-0 min-w-[48px] sm:min-w-[56px] text-right">
+            {isImmersiveCinema
+              ? `-${formatSec(Math.max(0, totalDuration - displaySeconds))}`
+              : formatSec(totalDuration)}
           </span>
         </div>
 
-        {/* ROW 2: PLAYBACK CONTROLS, SCREEN FIT, QUALITY & NEXT */}
-        <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-1.5 sm:gap-2">
+        {/* ROW 2: NETFLIX-STYLE CONTROLS, LOCK, SPEED, QUALITY, UP NEXT & FULLSCREEN */}
+        <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar">
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             <button
               type="button"
               onClick={toggleNativePlayPause}
-              className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-[#E11D48] hover:bg-[#BE123C] text-white cursor-pointer shrink-0"
+              className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-[#E50914] hover:bg-[#BE123C] text-white cursor-pointer shrink-0"
               title={playerPlaying ? 'Pause Movie' : 'Play Movie'}
             >
               {playerPlaying ? (
@@ -1122,23 +1593,27 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
               )}
             </button>
 
-            <button
-              type="button"
-              onClick={() => seekRelativeSeconds(-15)}
-              className="inline-flex items-center justify-center px-2 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-slate-200 text-[11px] font-mono cursor-pointer shrink-0"
-              title="Rewind 15 Seconds"
-            >
-              -15s
-            </button>
+            {!isImmersiveCinema && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => triggerSeekWithRipple(-10, 'left')}
+                  className="inline-flex items-center justify-center px-2 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-slate-200 text-[11px] font-mono cursor-pointer shrink-0"
+                  title="Rewind 10 Seconds"
+                >
+                  -10s
+                </button>
 
-            <button
-              type="button"
-              onClick={() => seekRelativeSeconds(15)}
-              className="inline-flex items-center justify-center px-2 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-slate-200 text-[11px] font-mono cursor-pointer shrink-0"
-              title="Fast-Forward 15 Seconds"
-            >
-              +15s
-            </button>
+                <button
+                  type="button"
+                  onClick={() => triggerSeekWithRipple(10, 'right')}
+                  className="inline-flex items-center justify-center px-2 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-slate-200 text-[11px] font-mono cursor-pointer shrink-0"
+                  title="Forward 10 Seconds"
+                >
+                  +10s
+                </button>
+              </>
+            )}
 
             <button
               type="button"
@@ -1153,30 +1628,41 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
               )}
             </button>
 
+            {isImmersiveCinema && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsScreenLocked(true);
+                  setShowUnlockPrompt(false);
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-semibold cursor-pointer whitespace-nowrap"
+                title="Lock Screen Touches"
+              >
+                <Lock className="w-3 h-3" />
+                <span className="hidden sm:inline">Lock</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={cyclePlaybackSpeed}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-slate-200 text-[11px] font-mono font-semibold cursor-pointer whitespace-nowrap"
+              title="Playback Speed"
+            >
+              <Gauge className="w-3 h-3 text-[#F59E0B]" />
+              <span>{playbackSpeed}x</span>
+            </button>
+
             <div className="flex items-center gap-1 ml-0.5">
               <button
                 type="button"
-                onClick={() => setPlayerServer('nocookie')}
-                className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors cursor-pointer whitespace-nowrap ${
-                  playerServer === 'nocookie'
-                    ? 'bg-[#E11D48] text-white'
-                    : 'bg-white/5 hover:bg-white/10 text-slate-300'
-                }`}
-                title="Fast Privacy CDN Server"
+                onClick={() =>
+                  setPlayerServer((prev) => (prev === 'nocookie' ? 'standard' : 'nocookie'))
+                }
+                className="px-2 py-1 rounded text-[10px] font-semibold transition-colors cursor-pointer whitespace-nowrap bg-white/10 hover:bg-white/20 text-slate-200"
+                title="Switch Streaming Server (CDN 1 / CDN 2)"
               >
-                CDN 1
-              </button>
-              <button
-                type="button"
-                onClick={() => setPlayerServer('standard')}
-                className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors cursor-pointer whitespace-nowrap ${
-                  playerServer === 'standard'
-                    ? 'bg-[#E11D48] text-white'
-                    : 'bg-white/5 hover:bg-white/10 text-slate-300'
-                }`}
-                title="Standard CDN Server"
-              >
-                CDN 2
+                {playerServer === 'nocookie' ? 'CDN 1' : 'CDN 2'}
               </button>
               <button
                 type="button"
@@ -1197,29 +1683,43 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
               >
                 <span>
                   {streamQuality === 'highres'
-                    ? '✨ 4K Ultra'
+                    ? '4K'
                     : streamQuality === 'hd1080'
-                    ? '💎 1080p FHD'
+                    ? '1080p'
                     : streamQuality === 'hd720'
-                    ? '⚡ 720p HD'
-                    : '🛡️ 480p Saver'}
+                    ? '720p'
+                    : '480p'}
                 </span>
               </button>
             </div>
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                revealHudTemporarily();
+                setShowUpNextDrawer((prev) => !prev);
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-semibold cursor-pointer whitespace-nowrap"
+              title="Episodes & More Movies"
+            >
+              <Film className="w-3.5 h-3.5 text-[#F59E0B]" />
+              <span>{seriesEpisodes.length > 1 ? 'Episodes' : 'Up Next'}</span>
+            </button>
+
             {nextBingeMovie && (
               <button
                 type="button"
                 onClick={triggerBingeNext}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#E11D48] hover:bg-[#BE123C] text-white text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap"
+                className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#E11D48] hover:bg-[#BE123C] text-white text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap"
                 title={`Binge Next: ${nextBingeMovie.title}`}
               >
                 <FastForward className="w-3.5 h-3.5" />
                 <span>Next</span>
               </button>
             )}
+
             <button
               type="button"
               onClick={cycleScreenFitMode}
@@ -1228,10 +1728,11 @@ export const YouTubeTheatreModal: React.FC<YouTubeTheatreModalProps> = ({
             >
               <span>{screenFitLabel}</span>
             </button>
+
             <button
               type="button"
               onClick={() => void toggleFullscreen()}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#E11D48] hover:bg-[#BE123C] text-white text-[11px] font-semibold cursor-pointer whitespace-nowrap shadow"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#E50914] hover:bg-[#BE123C] text-white text-[11px] font-semibold cursor-pointer whitespace-nowrap shadow"
               title={
                 isNativeFullscreen || isMobileTheatreExpanded
                   ? 'Exit Fullscreen'

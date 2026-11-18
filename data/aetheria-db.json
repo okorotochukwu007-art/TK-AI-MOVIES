@@ -1,6 +1,39 @@
 {
   "movies": [
     {
+      "id": "mov-auto-rYiKYy8drls",
+      "youtubeVideoId": "rYiKYy8drls",
+      "title": "Based On True Story | The Wrong Woman 2026 | USA Drama Thriller Movie",
+      "synopsis": "Based On True Story | The Wrong Woman 2026 | USA Drama Thriller Movie | Full Movie #RealDrama #drama ...",
+      "thumbnailUrl": "https://i.ytimg.com/vi/rYiKYy8drls/hqdefault.jpg",
+      "backdropUrl": "https://i.ytimg.com/vi/rYiKYy8drls/maxresdefault.jpg",
+      "primaryCategory": "New Movies",
+      "secondaryCategories": [
+        "Action Movies",
+        "Revenge Romance"
+      ],
+      "channelTitle": "True Story Cinema",
+      "channelId": "UCzykoE69-ULLhJP71SsPP0g",
+      "publishedAt": "2026-11-18T15:04:38.119Z",
+      "durationSeconds": 5048,
+      "durationFormatted": "1:24:08",
+      "viewCount": 14128704,
+      "likeCount": 777079,
+      "commentsCount": 91837,
+      "hookTag": "🎬 2026 Thriller Release",
+      "isEmbeddable": true,
+      "playbackStatus": "active",
+      "approvalStatus": "approved",
+      "isFeatured": false,
+      "seriesId": null,
+      "seasonNumber": null,
+      "episodeNumber": null,
+      "discoveredVia": "youtube_api",
+      "aiQualityScore": 95,
+      "createdAt": "2026-11-18T15:04:38.119Z",
+      "updatedAt": "2026-11-18T15:04:38.119Z"
+    },
+    {
       "id": "mov-auto-M4G24fBhTHc",
       "youtubeVideoId": "M4G24fBhTHc",
       "title": "Tera Mera Rishta 2 Full Movie | Swetha | Vivaan | Latest Hindi Romantic Movie 2026 |New South Dubbed",
@@ -29724,6 +29757,21 @@
   ],
   "runs": [
     {
+      "id": "run-gh-1795014279915",
+      "triggerType": "scheduled",
+      "status": "completed",
+      "startedAt": "2026-11-18T15:04:39.915Z",
+      "completedAt": "2026-11-18T15:04:39.915Z",
+      "videosScanned": 15,
+      "moviesAdded": 1,
+      "episodesLinked": 0,
+      "unavailableHidden": 0,
+      "quotaCostEstimate": 0,
+      "usedYouTubeDataApi": false,
+      "errors": [],
+      "summary": "GitHub AutoSync scanned 15 candidates and added 1 new verified movies."
+    },
+    {
       "id": "run-gh-1794961856992",
       "triggerType": "scheduled",
       "status": "completed",
@@ -30018,8 +30066,8 @@
     "autoPublishEnabled": true,
     "minDurationSeconds": 180,
     "requireEmbeddable": true,
-    "lastSuccessfulRunAt": "2026-11-18T00:30:56.992Z",
-    "nextScheduledRunAt": "2026-11-18T06:30:56.992Z",
+    "lastSuccessfulRunAt": "2026-11-18T15:04:39.915Z",
+    "nextScheduledRunAt": "2026-11-18T21:04:39.915Z",
     "adminEmails": [
       "okorotochukwu007@gmail.com"
     ],

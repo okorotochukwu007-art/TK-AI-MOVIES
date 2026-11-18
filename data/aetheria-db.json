@@ -1,39 +1,6 @@
 {
   "movies": [
     {
-      "id": "mov-auto-YZxX38R7vZY",
-      "youtubeVideoId": "YZxX38R7vZY",
-      "title": "THE IRON SIEGE — Dark Fantasy Action Movie | AGE OF KINGDOMS",
-      "synopsis": "AgeOfKingdoms #EpicFantasy #PippitContest THE IRON SIEGE — Dark Fantasy Action Movie | AGE OF KINGDOMS | Full Movie ...",
-      "thumbnailUrl": "https://i.ytimg.com/vi/YZxX38R7vZY/hqdefault.jpg",
-      "backdropUrl": "https://i.ytimg.com/vi/YZxX38R7vZY/maxresdefault.jpg",
-      "primaryCategory": "AI Animated Movies",
-      "secondaryCategories": [
-        "New Movies",
-        "Fantasy Romance"
-      ],
-      "channelTitle": "Neanderthal Stories",
-      "channelId": "UCTyAcUXuYbjDD9n9HmDIzfA",
-      "publishedAt": "2026-11-17T15:29:07.408Z",
-      "durationSeconds": 6691,
-      "durationFormatted": "1:51:31",
-      "viewCount": 4764054,
-      "likeCount": 262023,
-      "commentsCount": 30966,
-      "hookTag": "✨ 2026 Animated Film",
-      "isEmbeddable": true,
-      "playbackStatus": "active",
-      "approvalStatus": "approved",
-      "isFeatured": false,
-      "seriesId": null,
-      "seasonNumber": null,
-      "episodeNumber": null,
-      "discoveredVia": "youtube_api",
-      "aiQualityScore": 95,
-      "createdAt": "2026-11-17T15:29:07.408Z",
-      "updatedAt": "2026-11-17T15:29:07.408Z"
-    },
-    {
       "id": "mov-auto-M4G24fBhTHc",
       "youtubeVideoId": "M4G24fBhTHc",
       "title": "Tera Mera Rishta 2 Full Movie | Swetha | Vivaan | Latest Hindi Romantic Movie 2026 |New South Dubbed",
@@ -29757,6 +29724,21 @@
   ],
   "runs": [
     {
+      "id": "run-gh-1794961856992",
+      "triggerType": "scheduled",
+      "status": "completed",
+      "startedAt": "2026-11-18T00:30:56.992Z",
+      "completedAt": "2026-11-18T00:30:56.992Z",
+      "videosScanned": 1,
+      "moviesAdded": 0,
+      "episodesLinked": 0,
+      "unavailableHidden": 0,
+      "quotaCostEstimate": 0,
+      "usedYouTubeDataApi": false,
+      "errors": [],
+      "summary": "GitHub AutoSync scanned 1 candidates and added 0 new verified movies."
+    },
+    {
       "id": "run-gh-1794929347408",
       "triggerType": "scheduled",
       "status": "completed",
@@ -30036,8 +30018,8 @@
     "autoPublishEnabled": true,
     "minDurationSeconds": 180,
     "requireEmbeddable": true,
-    "lastSuccessfulRunAt": "2026-11-17T15:29:07.408Z",
-    "nextScheduledRunAt": "2026-11-17T21:29:07.408Z",
+    "lastSuccessfulRunAt": "2026-11-18T00:30:56.992Z",
+    "nextScheduledRunAt": "2026-11-18T06:30:56.992Z",
     "adminEmails": [
       "okorotochukwu007@gmail.com"
     ],

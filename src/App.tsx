@@ -1350,10 +1350,11 @@ export default function App() {
   }, [dailySyncing]);
 
   const featuredMovie = useMemo(() => {
+    const explicitlyFeatured = home2026Movies.find((m) => m.isFeatured);
     return (
+      explicitlyFeatured ||
       heroSpotlightMovies[heroSpotlightIdx] ||
       heroSpotlightMovies[0] ||
-      home2026Movies.find((m) => m.isFeatured) ||
       home2026Movies[0] ||
       null
     );

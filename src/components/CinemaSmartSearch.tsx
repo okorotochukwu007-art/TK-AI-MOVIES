@@ -37,6 +37,7 @@ import {
   isTokenMatch,
   matchesCategoryStrictly,
   normalizeSearchText,
+  rankInAppMoviesForQuery,
   SUPPORTED_MOVIE_CATEGORIES,
 } from '../utils/smartMovieSearch.ts';
 import { resolveMovieSource } from '../utils/videoSource.ts';
@@ -920,23 +921,13 @@ export const CinemaSmartSearch: React.FC<CinemaSmartSearchProps> = React.memo(({
 
   const filteredInAppMatches = useMemo(() => {
     const clean = query.trim();
+    const targetMovies = allAppMovies.length > 0 ? allAppMovies : inAppMatches;
     if (clean.length < 2) return inAppMatches;
     const catIntent = detectMovieCategoryIntent(clean);
     if (catIntent.category) return inAppMatches;
 
-    return inAppMatches.filter((m) => {
-      const tNorm = normalizeSearchText(m.title);
-      const qNorm = normalizeSearchText(clean);
-      if (tNorm === qNorm || tNorm.includes(qNorm) || qNorm.includes(tNorm)) return true;
-      const sim = computeTitleSimilarity(clean, m.title);
-      if (sim >= 0.72) return true;
-      const qTokens = qNorm.split(' ').filter((w) => w.length >= 2);
-      const titleWords = tNorm.split(' ').filter((w) => w.length >= 2);
-      const matchingTokens = qTokens.filter((qt) => titleWords.some((tw) => isTokenMatch(tw, qt)));
-      if (qTokens.length > 0 && matchingTokens.length >= Math.ceil(qTokens.length * 0.5)) return true;
-      return false;
-    });
-  }, [inAppMatches, query]);
+    return rankInAppMoviesForQuery(targetMovies, clean);
+  }, [allAppMovies, inAppMatches, query]);
 
   const isActiveSearch = query.trim().length >= 2;
   const recognized = outsideResult?.recognizedMovie;

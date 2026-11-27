@@ -1328,8 +1328,19 @@ const parseSortParam = (raw: unknown): SearchSortOption | undefined => {
     : undefined;
 };
 
+function hydrateProcessEnv(env: Record<string, string | undefined>) {
+  if (!env) return;
+  if (env.TMDB_API_KEY) process.env.TMDB_API_KEY = env.TMDB_API_KEY;
+  if (env.YOUTUBE_API_KEY) process.env.YOUTUBE_API_KEY = env.YOUTUBE_API_KEY;
+  if (env.SUPABASE_URL) process.env.SUPABASE_URL = env.SUPABASE_URL;
+  if (env.SUPABASE_ANON_KEY) process.env.SUPABASE_ANON_KEY = env.SUPABASE_ANON_KEY;
+  if (env.SUPABASE_SERVICE_ROLE_KEY) process.env.SUPABASE_SERVICE_ROLE_KEY = env.SUPABASE_SERVICE_ROLE_KEY;
+  if (env.GEMINI_API_KEY) process.env.GEMINI_API_KEY = env.GEMINI_API_KEY;
+}
+
 export async function onRequestGet(context: CloudflarePagesContext): Promise<Response> {
   try {
+    hydrateProcessEnv(context.env);
     const url = new URL(context.request.url);
     const query = (url.searchParams.get('q') || url.searchParams.get('query') || '').trim();
     const result = await executeSmartMovieSearch(
@@ -1355,6 +1366,7 @@ export async function onRequestGet(context: CloudflarePagesContext): Promise<Res
 
 export async function onRequestPost(context: CloudflarePagesContext): Promise<Response> {
   try {
+    hydrateProcessEnv(context.env);
     const body = (await context.request.json().catch(() => ({}))) as {
       query?: string;
       existingVideoIds?: string[];

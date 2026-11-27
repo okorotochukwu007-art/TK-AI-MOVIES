@@ -368,20 +368,11 @@ const BASE_SEED_MOVIES: MovieItem[] = [
   },
 ];
 
-const OUTDATED_AI_SEED_REGEX =
-  /\bai\b|ai-generated|ai generated|folktale|tales by|story hub|short film|blender|cartoon|animation short|fan-made|sintel|tears of steel|sprite fright|cosmos laundromat|coffee run|wing it/i;
-
 const BUNDLED_MOVIES: MovieItem[] = Array.isArray(
   (bundledCatalogue as any)?.movies
 )
   ? (((bundledCatalogue as any).movies as MovieItem[])
-      .filter(
-        (m) =>
-          (m.durationSeconds || 0) >= 2400 &&
-          !OUTDATED_AI_SEED_REGEX.test(
-            `${m.title || ''} ${m.channelTitle || ''} ${m.synopsis || ''}`
-          )
-      )
+      .filter((m) => m.approvalStatus === 'approved' && m.youtubeVideoId)
       .map((m, idx) => {
         const minViews = 1850000 + ((idx * 423190) % 26000000);
         const viewCount = Math.max(Number(m.viewCount || 0), minViews);

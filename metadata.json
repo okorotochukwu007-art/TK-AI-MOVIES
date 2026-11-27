@@ -1,0 +1,7 @@
+{
+  "name": "TK STORYWORLD — AI Movie & Series Streaming Platform",
+  "description": "TK STORYWORLD is a premier streaming platform for Nigerian and International AI love stories, billionaire romance, CEO dramas, and episodic AI series.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

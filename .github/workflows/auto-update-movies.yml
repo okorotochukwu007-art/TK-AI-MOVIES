@@ -1,0 +1,59 @@
+name: Auto Update Movie Catalogue
+
+on:
+  schedule:
+    # Run automatically every 6 hours
+    - cron: '0 */6 * * *'
+  # Allow manual 1-click trigger from GitHub Actions tab
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-update-movies
+  cancel-in-progress: false
+
+jobs:
+  update-catalogue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run Multi-Source 2026 Movie Sync (YouTube + Dailymotion + Vimeo)
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: node --experimental-strip-types scripts/autoSyncMovies.ts
+
+      - name: Regenerate XML Sitemap
+        run: node scripts/generateSitemap.mjs
+
+      - name: Commit and Push if Changed
+        run: |
+          git config --global user.name "TK Cinema Bot"
+          git config --global user.email "okorotochukwu007@gmail.com"
+          git add data/aetheria-db.json public/sitemap.xml public/seo-movies.json
+          if ! git diff --staged --quiet; then
+            git commit -m "chore(catalogue): multi-source 2026 movies auto-update"
+            git pull --rebase --autostash origin main
+            git push origin main
+          else
+            echo "Catalogue is up to date, no changes to commit."
+          fi
+
+      - name: Submit URLs to Bing & IndexNow API
+        continue-on-error: true
+        env:
+          BING_WEBMASTER_API_KEY: ${{ secrets.BING_WEBMASTER_API_KEY }}
+        run: node scripts/submitBingUrls.mjs
+

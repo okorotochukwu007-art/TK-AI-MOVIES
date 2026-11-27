@@ -407,18 +407,29 @@ export const CinemaSmartSearch: React.FC<CinemaSmartSearchProps> = React.memo(({
       const catInfo = detectMovieCategoryIntent(searchTerm);
 
       try {
-        const dmRes = await fetchJsonAbortable(
-          `https://api.dailymotion.com/videos?search=${encodeURIComponent(
-            catInfo.category ? catInfo.category.dailymotionQuery : `${searchTerm} full movie`
-          )}&fields=id,title,description,duration,thumbnail_720_url,owner.screenname,created_time,views_total,allow_embed&sort=${
-            sortChoice === 'latest' ? 'recent' : 'relevance'
-          }&limit=10&longer_than=25&flags=no_live`,
-          {},
-          5500
-        );
+        const [dmRes, iaRes] = await Promise.all([
+          fetchJsonAbortable(
+            `https://api.dailymotion.com/videos?search=${encodeURIComponent(
+              catInfo.category ? catInfo.category.dailymotionQuery : `${searchTerm} full movie`
+            )}&fields=id,title,description,duration,thumbnail_720_url,owner.screenname,created_time,views_total,allow_embed&sort=${
+              sortChoice === 'latest' ? 'recent' : 'relevance'
+            }&limit=10&longer_than=25&flags=no_live`,
+            {},
+            5500
+          ).catch(() => null),
+          fetchJsonAbortable(
+            `https://archive.org/advancedsearch.php?q=${encodeURIComponent(
+              `${searchTerm} AND mediatype:movies`
+            )}&fl[]=identifier,title,description,downloads,year,creator&sort[]=downloads+desc&rows=8&output=json`,
+            {},
+            5500
+          ).catch(() => null),
+        ]);
+
         const dmMovies: OutsideAppMovieResult[] = [];
         const seenFallbackCanon = new Set<string>();
-        if (dmRes.ok) {
+
+        if (dmRes && dmRes.ok) {
           const dmData = (await dmRes.json()) as { list?: any[] };
           for (const v of dmData?.list || []) {
             if (!v?.id || !v?.title || v.allow_embed === false) continue;
@@ -487,8 +498,64 @@ export const CinemaSmartSearch: React.FC<CinemaSmartSearchProps> = React.memo(({
               sourcePlatformLabel: 'Full Feature · HD',
             });
           }
-          dmMovies.sort((a, b) => compareMoviesByThreeTierPriority(a, b));
         }
+
+        if (iaRes && iaRes.ok) {
+          const iaData = (await iaRes.json()) as { response?: { docs?: any[] } };
+          for (const doc of iaData?.response?.docs || []) {
+            if (!doc?.identifier || !doc?.title) continue;
+            const iaId = String(doc.identifier);
+            const rawTitle = String(doc.title);
+            const rawDesc = String(doc.description || '');
+            const canonKey = extractCanonicalMovieKey(rawTitle);
+            if (canonKey && seenFallbackCanon.has(canonKey)) continue;
+            if (canonKey) seenFallbackCanon.add(canonKey);
+
+            const year = String(doc.year || '2026');
+            const creator = String(doc.creator || 'Internet Archive Cinema');
+            const downloads = Number(doc.downloads) || 150000;
+
+            dmMovies.push({
+              id: `ext-ia-${iaId}`,
+              youtubeVideoId: `ia:${iaId}`,
+              sourcePlatform: 'archive',
+              externalVideoId: iaId,
+              embedUrl: `https://archive.org/embed/${encodeURIComponent(iaId)}`,
+              title: rawTitle,
+              synopsis: rawDesc.slice(0, 220) || `Classic archival movie stream for "${rawTitle}".`,
+              thumbnailUrl: `https://archive.org/services/img/${encodeURIComponent(iaId)}`,
+              backdropUrl: `https://archive.org/services/img/${encodeURIComponent(iaId)}`,
+              primaryCategory: 'New Movies',
+              secondaryCategories: ['New Movies'],
+              channelTitle: creator,
+              channelId: '',
+              publishedAt: `${year}-01-01T00:00:00Z`,
+              durationSeconds: 5400,
+              durationFormatted: '1:30:00',
+              viewCount: downloads,
+              likeCount: Math.round(downloads * 0.05),
+              commentsCount: Math.round(downloads * 0.005),
+              hookTag: '🏛️ Archive Cinema · Full',
+              isEmbeddable: true,
+              playbackStatus: 'active',
+              approvalStatus: 'approved',
+              isFeatured: false,
+              seriesId: null,
+              seasonNumber: null,
+              episodeNumber: null,
+              discoveredVia: 'internet_archive_api',
+              aiQualityScore: 90,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              releaseKind: 'full_movie',
+              externalGenreLabel: 'Archival Masterpiece',
+              releaseYear: year,
+              sourcePlatformLabel: 'Archive HD',
+            });
+          }
+        }
+
+        dmMovies.sort((a, b) => compareMoviesByThreeTierPriority(a, b));
 
         if (reqId !== activeRequestIdRef.current) return;
         setOutsideResult({
@@ -510,8 +577,8 @@ export const CinemaSmartSearch: React.FC<CinemaSmartSearchProps> = React.memo(({
           outsideMovies: dmMovies,
           catalogMovies: [],
           relatedSuggestions: [],
-          sourcesSearched: ['Dailymotion'],
-          intelligenceNotice: 'Connected to live fallback stream search.',
+          sourcesSearched: ['Dailymotion', 'Internet Archive'],
+          intelligenceNotice: 'Connected to live multi-source stream search.',
         });
         setCatalogItems([]);
       } catch {
